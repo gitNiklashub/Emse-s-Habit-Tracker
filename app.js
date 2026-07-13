@@ -103,6 +103,14 @@ function migrate(data) {
     if (!h.kind) h.kind = 'check';
     if (h.kind === 'number' && !h.direction) h.direction = 'min';
   });
+  // Ereignis-Logs: früher Text-Arrays pro Tag, jetzt reine Zähler
+  data.habits.filter((h) => h.kind === 'event').forEach((h) => {
+    const log = data.logs[h.id];
+    if (!log) return;
+    Object.keys(log).forEach((d) => {
+      if (Array.isArray(log[d])) log[d] = log[d].length;
+    });
+  });
   if (!data.pauses) data.pauses = {};
   if (!data.ui) data.ui = {};
 }
@@ -158,30 +166,10 @@ function doneOn(h, isoDate) {
   return isDone(h.id, isoDate);
 }
 
-// Ereignis-Log eines Tages: Array von { text } — mehrere Ereignisse pro Tag möglich
-function eventsOn(habitId, isoDate) {
-  return (state.logs[habitId] && state.logs[habitId][isoDate]) || [];
-}
-
-function addEvent(habitId, isoDate, text) {
-  if (!state.logs[habitId]) state.logs[habitId] = {};
-  if (!Array.isArray(state.logs[habitId][isoDate])) state.logs[habitId][isoDate] = [];
-  state.logs[habitId][isoDate].push({ text, at: Date.now() });
-  save();
-}
-
-function removeEvent(habitId, isoDate, idx) {
-  const arr = state.logs[habitId] && state.logs[habitId][isoDate];
-  if (!Array.isArray(arr)) return;
-  arr.splice(idx, 1);
-  if (arr.length === 0) delete state.logs[habitId][isoDate];
-  save();
-}
-
-function eventCountInRange(habitId, from, to) {
-  let n = 0;
-  for (let d = new Date(from); d <= to; d = addDays(d, 1)) n += eventsOn(habitId, iso(d)).length;
-  return n;
+// Ereignisse sind reine Tages-Zähler: rawVal/setVal/sumInRange decken alles ab.
+// +1 für ein Ereignis an einem Tag:
+function bumpEvent(habitId, isoDate, delta = 1) {
+  setVal(habitId, isoDate, Math.max(0, rawVal(habitId, isoDate) + delta));
 }
 
 function toggle(habitId, isoDate) {
@@ -237,7 +225,9 @@ function dueDaysBetween(from, to) {
 
 function allDoneToday() {
   const t = iso(today());
-  return state.habits.length > 0 && state.habits.every((h) => doneOn(h, t));
+  // Ereignis-Habits sind reine Logs ohne Ziel — sie zählen nicht zur Tageserfüllung
+  const trackable = state.habits.filter((h) => h.kind !== 'event');
+  return trackable.length > 0 && trackable.every((h) => doneOn(h, t));
 }
 
 // ---------- Streaks ----------
@@ -611,10 +601,12 @@ function renderToday() {
   const t = iso(today());
 
   // Hero: Baby-Esel mit Stimmung + Spruch + Fortschritt
-  const doneCount = state.habits.filter((h) => doneOn(h, t)).length;
-  const total = state.habits.length;
-  const pct = Math.round((doneCount / total) * 100);
-  const mood = moodFor(pct);
+  // (Ereignis-Habits sind reine Logs und zählen nicht zum Tagesfortschritt)
+  const trackable = state.habits.filter((h) => h.kind !== 'event');
+  const doneCount = trackable.filter((h) => doneOn(h, t)).length;
+  const total = trackable.length;
+  const pct = total > 0 ? Math.round((doneCount / total) * 100) : 0;
+  const mood = moodFor(total > 0 ? pct : 1); // nur Ereignis-Habits → neutral-hoffnungsvoll
 
   // Streak & Belohnungen
   const sd = bestStreakDays();
@@ -632,10 +624,10 @@ function renderToday() {
     <div class="donkey-tap" role="button" aria-label="Esel streicheln">${donkeySvg(mood, 104, accessoriesFor(sd))}</div>
     <div class="hero-right">
       <div class="bubble">${pickQuote(mood)}</div>
-      <div class="hero-progress">
+      ${total > 0 ? `<div class="hero-progress">
         <div class="hero-bar"><div style="width:${pct}%"></div></div>
         <span class="hero-count">${doneCount}/${total}</span>
-      </div>
+      </div>` : ''}
       <div class="streak-row">${streakInfo}</div>
     </div>`;
   main.appendChild(hero);
@@ -683,11 +675,13 @@ function renderToday() {
         style="${done ? `background:${c.ink}` : ''}"
         aria-label="Wert eintragen">${fmtNum(val)}<span>${esc(h.unit)}</span></button>`;
     } else if (h.kind === 'event') {
-      const evts = eventsOn(h.id, t);
-      sub = evts.length > 0
-        ? `Heute: ${evts.map((e) => esc(e.text)).join(', ')}`
-        : 'Noch kein Eintrag heute';
-      action = `<button class="value-btn event-btn" aria-label="Ereignis loggen">+</button>`;
+      const cntToday = rawVal(h.id, t);
+      const ms = monthStart(today());
+      const cntMonth = sumInRange(h.id, ms, addDays(ms, daysInMonth(today()) - 1));
+      sub = cntToday > 0
+        ? `<b>${cntToday}×</b> heute &nbsp;·&nbsp; ${cntMonth}× diesen Monat`
+        : (cntMonth > 0 ? `<b>${cntMonth}×</b> diesen Monat` : 'Tippe +, wenn es passiert');
+      action = `<button class="value-btn event-btn" aria-label="Ereignis für heute loggen">+</button>`;
     } else if (h.freq.type === 'daily') {
       sub = st.n > 0 ? `🔥 <b>${st.n}</b> ${st.unit} in Folge` : 'Heute noch offen';
     } else {
@@ -729,7 +723,12 @@ function renderToday() {
     if (h.kind === 'number') {
       card.querySelector('.value-btn').addEventListener('click', () => openLog(h.id, t));
     } else if (h.kind === 'event') {
-      card.querySelector('.value-btn').addEventListener('click', () => openEventLog(h.id, t));
+      // Direkt loggen — kein Sheet, kein Grund nötig
+      card.querySelector('.value-btn').addEventListener('click', (e) => {
+        bumpEvent(h.id, t);
+        e.currentTarget.classList.add('pop');
+        render();
+      });
     } else {
       card.querySelector('.check-btn').addEventListener('click', (e) => {
         const wasAll = allDoneToday();
@@ -751,6 +750,7 @@ function weekScore(wk) {
   const wkEnd = addDays(wk, 6);
   let done = 0, due = 0;
   state.habits.forEach((h) => {
+    if (h.kind === 'event') return; // reine Logs, keine fälligen Einheiten
     const created = fromIso(h.createdAt);
     if (created > wkEnd) return;
     const from = created > wk ? created : wk;
@@ -786,6 +786,7 @@ function buildReviewCard() {
   // Stärkster Habit dieser Woche
   let bestHabit = null, bestRatio = -1;
   state.habits.forEach((h) => {
+    if (h.kind === 'event') return;
     const wkEnd = addDays(wk, 6);
     const upto = t < wkEnd ? t : wkEnd;
     if (fromIso(h.createdAt) > upto) return;
@@ -913,13 +914,13 @@ function renderWeekStats() {
         barChart(vals, h, c, wk, t, 'week');
       wireBars(card, h, wk, t);
     } else if (h.kind === 'event') {
-      const cnt = eventCountInRange(h.id, wk, wkEnd);
+      const cnt = sumInRange(h.id, wk, wkEnd);
       card.innerHTML = statHead(h, `<b>${cnt}</b>× diese Woche`, true) + '<div class="week-row"></div>';
       const row = card.querySelector('.week-row');
       for (let i = 0; i < 7; i++) {
         const d = addDays(wk, i);
         const dIso = iso(d);
-        const n = eventsOn(h.id, dIso).length;
+        const n = rawVal(h.id, dIso);
         const future = d > t;
         const cell = document.createElement('button');
         cell.className = 'day-cell' + (n > 0 ? ' done' : '') + (future ? ' future' : '') + (dIso === iso(t) ? ' today' : '');
@@ -984,6 +985,7 @@ function renderMonthStats() {
   // Gesamt
   let done = 0, due = 0;
   state.habits.forEach((h) => {
+    if (h.kind === 'event') return; // reine Logs, keine fälligen Einheiten
     const created = fromIso(h.createdAt);
     if (created > mEnd) return;
     const from = created > ms ? created : ms;
@@ -1019,7 +1021,7 @@ function renderMonthStats() {
       const sum = sumInRange(h.id, ms, mEnd);
       val = `<b>${fmtNum(sum)}</b> ${esc(h.unit)} gesamt`;
     } else if (isEvent) {
-      val = `<b>${eventCountInRange(h.id, ms, mEnd)}</b>× diesen Monat`;
+      val = `<b>${sumInRange(h.id, ms, mEnd)}</b>× diesen Monat`;
     } else {
       const cnt = countInRange(h.id, ms, mEnd);
       if (h.freq.type === 'daily') val = `<b>${cnt}</b>/${nDays} Tage`;
@@ -1067,7 +1069,7 @@ function renderMonthStats() {
         cell.textContent = day;
         if (!future) cell.addEventListener('click', () => openLog(h.id, dIso));
       } else if (isEvent) {
-        const n = eventsOn(h.id, dIso).length;
+        const n = rawVal(h.id, dIso);
         cell.className = 'm-cell' + (n > 0 ? ' done' : '') + (future ? ' future' : '') + (dIso === iso(t) ? ' today' : '');
         if (n > 0) { cell.style.background = c.ink; cell.style.color = '#fff'; cell.style.fontWeight = '700'; }
         cell.textContent = n > 0 ? n : day;
@@ -1234,7 +1236,7 @@ function renderDetail() {
   wireBars(chartWrap, h, from, t);
 }
 
-// Detail-Ansicht für Ereignis-Habits: chronologische, bearbeitbare Liste statt Chart
+// Detail-Ansicht für Ereignis-Habits: Tage mit Zähler, antippen zum Anpassen
 function renderEventDetail(h, from, to, box) {
   const nDays = Math.round((to - from) / 86400000) + 1;
   let total = 0;
@@ -1242,14 +1244,14 @@ function renderEventDetail(h, from, to, box) {
   for (let i = 0; i < nDays; i++) {
     const d = addDays(from, i);
     const dIso = iso(d);
-    const evts = eventsOn(h.id, dIso);
-    total += evts.length;
-    evts.forEach((e, idx) => rows.push({ dIso, d, idx, text: e.text }));
+    const n = rawVal(h.id, dIso);
+    total += n;
+    if (n > 0) rows.push({ dIso, d, n });
   }
 
   const kpi = document.createElement('div');
   kpi.className = 'kpi-row';
-  kpi.innerHTML = `<div class="kpi" style="flex:1"><div class="k-val">${total}</div><div class="k-lbl">Einträge in diesem Zeitraum</div></div>`;
+  kpi.innerHTML = `<div class="kpi" style="flex:1"><div class="k-val">${total}×</div><div class="k-lbl">in diesem Zeitraum</div></div>`;
   box.appendChild(kpi);
 
   const list = document.createElement('div');
@@ -1258,15 +1260,11 @@ function renderEventDetail(h, from, to, box) {
     list.innerHTML = '<p class="event-empty">Keine Einträge in diesem Zeitraum.</p>';
   } else {
     rows.reverse().forEach((r) => {
-      const row = document.createElement('div');
+      const row = document.createElement('button');
       row.className = 'event-row';
-      const dLbl = r.d.toLocaleDateString('de-DE', { day: 'numeric', month: 'short' });
-      row.innerHTML = `<span><b class="ev-date">${dLbl}</b> ${esc(r.text)}</span><button aria-label="Löschen">✕</button>`;
-      row.querySelector('button').addEventListener('click', () => {
-        removeEvent(h.id, r.dIso, r.idx);
-        renderDetail();
-        render();
-      });
+      const dLbl = r.d.toLocaleDateString('de-DE', { weekday: 'short', day: 'numeric', month: 'short' });
+      row.innerHTML = `<span><b class="ev-date">${dLbl}</b></span><span class="ev-count">${r.n}×</span><span class="chev">›</span>`;
+      row.addEventListener('click', () => openEventLog(h.id, r.dIso));
       list.appendChild(row);
     });
   }
@@ -1274,8 +1272,12 @@ function renderEventDetail(h, from, to, box) {
 
   const addBtn = document.createElement('button');
   addBtn.className = 'btn ghost event-add-today';
-  addBtn.textContent = '+ Eintrag für heute';
-  addBtn.addEventListener('click', () => openEventLog(h.id, iso(today())));
+  addBtn.textContent = '+1 für heute';
+  addBtn.addEventListener('click', () => {
+    bumpEvent(h.id, iso(today()));
+    renderDetail();
+    render();
+  });
   box.appendChild(addBtn);
 }
 
@@ -1321,7 +1323,7 @@ function applyLog(mode) { // 'add' | 'set' | 'clear'
   if (detail && !$('#sheet-detail').classList.contains('hidden')) renderDetail();
 }
 
-// ---------- Ereignis-Sheet (Ereignis-Habits) ----------
+// ---------- Ereignis-Sheet: Zähler eines Tages anpassen ----------
 
 function openEventLog(habitId, isoDate) {
   const h = state.habits.find((x) => x.id === habitId);
@@ -1333,42 +1335,14 @@ function openEventLog(habitId, isoDate) {
   $('#event-sub').textContent = d.toLocaleDateString('de-DE', {
     weekday: 'long', day: 'numeric', month: 'long',
   });
-  $('#inp-event').value = '';
-  renderEventList();
+  $('#event-count').textContent = rawVal(habitId, isoDate);
   openSheet($('#sheet-event'));
-  setTimeout(() => $('#inp-event').focus(), 250);
 }
 
-function renderEventList() {
+function adjustEvent(delta) {
   if (!eventCtx) return;
-  const list = $('#event-list');
-  const evts = eventsOn(eventCtx.habitId, eventCtx.date);
-  list.innerHTML = '';
-  if (evts.length === 0) {
-    list.innerHTML = '<p class="event-empty">Noch kein Eintrag für diesen Tag.</p>';
-    return;
-  }
-  evts.forEach((e, i) => {
-    const row = document.createElement('div');
-    row.className = 'event-row';
-    row.innerHTML = `<span>${esc(e.text)}</span><button aria-label="Löschen">✕</button>`;
-    row.querySelector('button').addEventListener('click', () => {
-      removeEvent(eventCtx.habitId, eventCtx.date, i);
-      renderEventList();
-      render();
-      if (detail && !$('#sheet-detail').classList.contains('hidden')) renderDetail();
-    });
-    list.appendChild(row);
-  });
-}
-
-function addEventEntry() {
-  if (!eventCtx) return;
-  const text = $('#inp-event').value.trim();
-  if (!text) { $('#inp-event').focus(); return; }
-  addEvent(eventCtx.habitId, eventCtx.date, text);
-  $('#inp-event').value = '';
-  renderEventList();
+  bumpEvent(eventCtx.habitId, eventCtx.date, delta);
+  $('#event-count').textContent = rawVal(eventCtx.habitId, eventCtx.date);
   render();
   if (detail && !$('#sheet-detail').classList.contains('hidden')) renderDetail();
 }
@@ -1409,6 +1383,26 @@ function renderSheetControls() {
     document.querySelectorAll('#direction-seg button').forEach((b) =>
       b.classList.toggle('active', b.dataset.dir === sheetSel.direction));
     $('#goal-label').textContent = sheetSel.direction === 'max' ? 'Höchstgrenze' : 'Tagesziel';
+  }
+
+  // Bestehende Ereignisse als Chips: antippen loggt sie direkt für heute
+  const existing = state.habits.filter((h) => h.kind === 'event');
+  const showExisting = isEvent && !editingId && existing.length > 0;
+  $('#event-existing-block').classList.toggle('hidden', !showExisting);
+  if (showExisting) {
+    const row = $('#event-existing');
+    row.innerHTML = '';
+    existing.forEach((h) => {
+      const chip = document.createElement('button');
+      chip.className = 'chip';
+      chip.textContent = `${h.emoji} ${h.name}`;
+      chip.addEventListener('click', () => {
+        bumpEvent(h.id, iso(today()));
+        closeSheet($('#sheet-habit'));
+        render();
+      });
+      row.appendChild(chip);
+    });
   }
 
   // Emojis (Presets + eigenes)
@@ -1469,8 +1463,9 @@ function saveHabit() {
     Object.assign(h, { name, emoji: sheetSel.emoji, color: sheetSel.color, freq });
     if (h.kind === 'number') { h.unit = unit; h.goal = goal; h.direction = sheetSel.direction; }
   } else {
+    const id = 'h' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
     state.habits.push({
-      id: 'h' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      id,
       name,
       emoji: sheetSel.emoji,
       color: sheetSel.color,
@@ -1481,6 +1476,8 @@ function saveHabit() {
       freq,
       createdAt: iso(today()),
     });
+    // Ein neues Ereignis anlegen heißt: es ist gerade passiert → direkt für heute loggen
+    if (isEvent) setVal(id, iso(today()), 1);
   }
   save();
   closeSheet($('#sheet-habit'));
@@ -1637,9 +1634,9 @@ $('#btn-log-add').addEventListener('click', () => applyLog('add'));
 $('#btn-log-set').addEventListener('click', () => applyLog('set'));
 $('#btn-log-clear').addEventListener('click', () => applyLog('clear'));
 
-$('#btn-event-add').addEventListener('click', addEventEntry);
+$('#event-plus').addEventListener('click', () => adjustEvent(1));
+$('#event-minus').addEventListener('click', () => adjustEvent(-1));
 $('#btn-close-event').addEventListener('click', () => closeSheet($('#sheet-event')));
-$('#inp-event').addEventListener('keydown', (e) => { if (e.key === 'Enter') addEventEntry(); });
 
 // Backdrop-Tap schließt jeweils nur das eigene Sheet
 document.querySelectorAll('.sheet-backdrop').forEach((bd) => {

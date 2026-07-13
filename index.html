@@ -15,7 +15,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Habits">
 
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=10">
 </head>
 <body>
   <div class="app">
@@ -77,6 +77,11 @@
           <button data-kind="number">Zahl 123</button>
           <button data-kind="event">Ereignis 📝</button>
         </div>
+      </div>
+
+      <div id="event-existing-block" class="hidden">
+        <label class="field-label">Schon mal passiert — antippen, um es für heute zu loggen</label>
+        <div id="event-existing" class="chip-row"></div>
       </div>
 
       <label class="field-label">Symbol</label>
@@ -153,21 +158,22 @@
     </div>
   </div>
 
-  <!-- Ereignis loggen (Ereignis-Habits) -->
+  <!-- Ereignis-Zähler anpassen (nachträglich, über Statistik/Detail) -->
   <div id="sheet-event" class="sheet-backdrop hidden">
     <div class="sheet" role="dialog" aria-modal="true">
       <div class="sheet-handle"></div>
-      <h2 id="event-title">Ereignis loggen</h2>
+      <h2 id="event-title">Ereignis</h2>
       <p id="event-sub" class="log-sub"></p>
 
-      <div id="event-list" class="event-list"></div>
-
-      <label class="field-label" for="inp-event">Neuer Eintrag</label>
-      <input id="inp-event" type="text" placeholder="z. B. Kurz geweint nach dem Anruf" maxlength="80">
+      <div class="event-adjust">
+        <button id="event-minus" aria-label="Einen weniger">−</button>
+        <div class="event-count-big"><span id="event-count">0</span>×</div>
+        <button id="event-plus" aria-label="Einen mehr">+</button>
+      </div>
+      <p class="event-adjust-hint">an diesem Tag</p>
 
       <div class="sheet-actions">
-        <button id="btn-close-event" class="btn ghost">Fertig</button>
-        <button id="btn-event-add" class="btn primary">Hinzufügen</button>
+        <button id="btn-close-event" class="btn primary">Fertig</button>
       </div>
     </div>
   </div>
@@ -223,6 +229,6 @@
     </div>
   </div>
 
-  <script src="app.js"></script>
+  <script src="app.js?v=10"></script>
 </body>
 </html>

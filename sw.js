@@ -1,7 +1,8 @@
-/* Service Worker — App-Shell offline verfügbar machen.
-   Bei Änderungen an den App-Dateien VERSION hochzählen. */
+/* Service Worker — App offline verfügbar machen.
+   Strategie: network-first für ALLES (frische Dateien, wenn online),
+   Cache nur als Offline-Fallback. Bei Änderungen VERSION hochzählen. */
 
-const VERSION = 'v8';
+const VERSION = 'v10';
 const CACHE = `emse-habits-${VERSION}`;
 const ASSETS = [
   './',
@@ -27,27 +28,20 @@ self.addEventListener('activate', (e) => {
   );
 });
 
-// Network-first für Navigation (frische App-Version, wenn online),
-// Cache-first für alles andere.
+// Network-first: immer frisch vom Server, Cache nur wenn offline.
+// ignoreSearch, damit Cache-Buster-Queries (?v=9) den Fallback nicht brechen.
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
-  if (e.request.mode === 'navigate') {
-    e.respondWith(
-      fetch(e.request)
-        .then((res) => {
-          const copy = res.clone();
-          caches.open(CACHE).then((c) => c.put('./index.html', copy));
-          return res;
-        })
-        .catch(() => caches.match('./index.html'))
-    );
-    return;
-  }
   e.respondWith(
-    caches.match(e.request).then((hit) => hit || fetch(e.request).then((res) => {
-      const copy = res.clone();
-      caches.open(CACHE).then((c) => c.put(e.request, copy));
-      return res;
-    }))
+    fetch(e.request)
+      .then((res) => {
+        const copy = res.clone();
+        caches.open(CACHE).then((c) => c.put(e.request, copy));
+        return res;
+      })
+      .catch(() =>
+        caches.match(e.request, { ignoreSearch: true })
+          .then((hit) => hit || caches.match('./index.html'))
+      )
   );
 });
