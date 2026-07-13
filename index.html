@@ -72,9 +72,10 @@
 
       <div id="kind-block">
         <label class="field-label">Art</label>
-        <div class="seg" id="kind-seg">
+        <div class="seg seg-3" id="kind-seg">
           <button data-kind="check" class="active">Abhaken ✓</button>
-          <button data-kind="number">Zahl erfassen 123</button>
+          <button data-kind="number">Zahl 123</button>
+          <button data-kind="event">Ereignis 📝</button>
         </div>
       </div>
 
@@ -104,13 +105,18 @@
       </div>
 
       <div id="number-block" class="hidden">
+        <label class="field-label">Richtung</label>
+        <div class="seg" id="direction-seg">
+          <button data-dir="min" class="active">Mindestens (z. B. Eiweiß)</button>
+          <button data-dir="max">Höchstens (z. B. Kalorien)</button>
+        </div>
         <div class="two-col">
           <div>
             <label class="field-label" for="inp-unit">Einheit</label>
             <input id="inp-unit" type="text" placeholder="g, ml, min…" maxlength="10">
           </div>
           <div>
-            <label class="field-label" for="inp-goal">Tagesziel</label>
+            <label class="field-label" id="goal-label" for="inp-goal">Tagesziel</label>
             <input id="inp-goal" type="text" inputmode="decimal" placeholder="z. B. 100">
           </div>
         </div>
@@ -143,6 +149,25 @@
         <button id="btn-log-clear" class="btn danger" title="Eintrag für diesen Tag löschen">Leeren</button>
         <button id="btn-log-set" class="btn ghost">Setzen</button>
         <button id="btn-log-add" class="btn primary">+ Dazu</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Ereignis loggen (Ereignis-Habits) -->
+  <div id="sheet-event" class="sheet-backdrop hidden">
+    <div class="sheet" role="dialog" aria-modal="true">
+      <div class="sheet-handle"></div>
+      <h2 id="event-title">Ereignis loggen</h2>
+      <p id="event-sub" class="log-sub"></p>
+
+      <div id="event-list" class="event-list"></div>
+
+      <label class="field-label" for="inp-event">Neuer Eintrag</label>
+      <input id="inp-event" type="text" placeholder="z. B. Kurz geweint nach dem Anruf" maxlength="80">
+
+      <div class="sheet-actions">
+        <button id="btn-close-event" class="btn ghost">Fertig</button>
+        <button id="btn-event-add" class="btn primary">Hinzufügen</button>
       </div>
     </div>
   </div>

@@ -52,7 +52,24 @@ const QUOTES = {
     'Alle Habits erledigt — du bist mein Held! 💖',
     'Volle Möhre! Besser geht\'s nicht! 🥕✨',
   ],
+  // Easter Egg: App zwischen 0–4 Uhr geöffnet
+  midnight: [
+    'Psst… es ist mitten in der Nacht. Ich träume von Möhrenfeldern. 🌙',
+    'Iiii… ganz leise. Alle anderen Esel schlafen schon. ✨',
+    'Nachteule oder Frühaufsteher? So oder so: geh bald schlafen. 😴',
+    'Die Sterne sind schön heute Nacht, findest du nicht auch? 🌌',
+    'Ich bewache deine Habits, während die Welt schläft. 🌛',
+  ],
 };
+
+// Easter Egg: Reaktionen auf Doppel-Tap/Long-Press auf den Esel
+const PETS = [
+  'Iiiaah! Das kitzelt! 🥰',
+  'Danke fürs Kraulen! 💛',
+  'Mehr davon, bitte! 🐴',
+  'Du bist mein Lieblingsmensch. 💖',
+  'Möhren später? Ich freu mich schon! 🥕',
+];
 
 // ---------- State ----------
 
@@ -61,8 +78,9 @@ let view = 'today';               // 'today' | 'stats'
 let statsMode = 'week';           // 'week' | 'month'
 let statsOffset = 0;              // 0 = aktuelle Periode, -1 = vorherige, …
 let editingId = null;             // Habit-ID im Sheet (null = neu)
-let sheetSel = { emoji: EMOJIS[0], color: 'rose', freq: 'daily', target: 3, kind: 'check' };
+let sheetSel = { emoji: EMOJIS[0], color: 'rose', freq: 'daily', target: 3, kind: 'check', direction: 'min' };
 let logCtx = null;                // { habitId, date } fürs Wert-Sheet
+let eventCtx = null;              // { habitId, date } fürs Ereignis-Sheet
 let detail = null;                // { id, mode, offset } fürs Detail-Sheet
 
 function load() {
@@ -81,7 +99,10 @@ function load() {
 
 // Ältere Datenstände auf den aktuellen Stand heben
 function migrate(data) {
-  data.habits.forEach((h) => { if (!h.kind) h.kind = 'check'; });
+  data.habits.forEach((h) => {
+    if (!h.kind) h.kind = 'check';
+    if (h.kind === 'number' && !h.direction) h.direction = 'min';
+  });
   if (!data.pauses) data.pauses = {};
   if (!data.ui) data.ui = {};
 }
@@ -124,10 +145,43 @@ function rawVal(habitId, isoDate) {
 
 function isDone(habitId, isoDate) { return !!rawVal(habitId, isoDate); }
 
-// „Zählt der Tag als geschafft?" — bei Zahlen-Habits: Tagesziel erreicht
+// Ist ein Zahlen-Wert zielkonform? Richtung 'min' = mindestens, 'max' = höchstens
+function goalReached(h, val) {
+  if (!val) return false; // kein Eintrag zählt nie als erledigt (gilt für beide Richtungen)
+  return h.direction === 'max' ? val <= h.goal : val >= h.goal;
+}
+
+// „Zählt der Tag als geschafft?" — Zahlen-Habits: Tagesziel erreicht; Ereignis-Habits: nie ein „Ziel"
 function doneOn(h, isoDate) {
-  if (h.kind === 'number') return rawVal(h.id, isoDate) >= h.goal;
+  if (h.kind === 'number') return goalReached(h, rawVal(h.id, isoDate));
+  if (h.kind === 'event') return false;
   return isDone(h.id, isoDate);
+}
+
+// Ereignis-Log eines Tages: Array von { text } — mehrere Ereignisse pro Tag möglich
+function eventsOn(habitId, isoDate) {
+  return (state.logs[habitId] && state.logs[habitId][isoDate]) || [];
+}
+
+function addEvent(habitId, isoDate, text) {
+  if (!state.logs[habitId]) state.logs[habitId] = {};
+  if (!Array.isArray(state.logs[habitId][isoDate])) state.logs[habitId][isoDate] = [];
+  state.logs[habitId][isoDate].push({ text, at: Date.now() });
+  save();
+}
+
+function removeEvent(habitId, isoDate, idx) {
+  const arr = state.logs[habitId] && state.logs[habitId][isoDate];
+  if (!Array.isArray(arr)) return;
+  arr.splice(idx, 1);
+  if (arr.length === 0) delete state.logs[habitId][isoDate];
+  save();
+}
+
+function eventCountInRange(habitId, from, to) {
+  let n = 0;
+  for (let d = new Date(from); d <= to; d = addDays(d, 1)) n += eventsOn(habitId, iso(d)).length;
+  return n;
 }
 
 function toggle(habitId, isoDate) {
@@ -238,6 +292,64 @@ function hexA(hex, a) {
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
 }
 
+// ---------- Sheets: öffnen/schließen mit Scroll-Lock + Swipe-to-dismiss ----------
+
+let openSheets = 0;
+let scrollY = 0;
+
+function openSheet(el) {
+  if (openSheets === 0) {
+    scrollY = window.scrollY;
+    document.body.classList.add('scroll-lock');
+    document.body.style.top = `-${scrollY}px`;
+  }
+  openSheets++;
+  el.classList.remove('hidden');
+}
+
+function closeSheet(el) {
+  if (el.classList.contains('hidden')) return;
+  el.classList.add('hidden');
+  el.querySelector('.sheet')?.style.removeProperty('transform');
+  openSheets = Math.max(0, openSheets - 1);
+  if (openSheets === 0) {
+    document.body.classList.remove('scroll-lock');
+    document.body.style.top = '';
+    window.scrollTo(0, scrollY);
+  }
+  if (el.id === 'sheet-habit') editingId = null;
+  if (el.id === 'sheet-log') logCtx = null;
+  if (el.id === 'sheet-event') eventCtx = null;
+  if (el.id === 'sheet-detail') detail = null;
+}
+
+// Am Handle nach unten ziehen schließt das Sheet
+function wireSwipeToDismiss(backdrop) {
+  const sheet = backdrop.querySelector('.sheet');
+  const handle = backdrop.querySelector('.sheet-handle');
+  if (!sheet || !handle) return;
+  let startY = null, dy = 0;
+
+  handle.addEventListener('touchstart', (e) => {
+    startY = e.touches[0].clientY;
+    sheet.style.transition = 'none';
+  }, { passive: true });
+
+  handle.addEventListener('touchmove', (e) => {
+    if (startY === null) return;
+    dy = Math.max(0, e.touches[0].clientY - startY);
+    sheet.style.transform = `translateY(${dy}px)`;
+  }, { passive: true });
+
+  handle.addEventListener('touchend', () => {
+    if (startY === null) return;
+    sheet.style.transition = '';
+    if (dy > 90) closeSheet(backdrop);
+    else sheet.style.removeProperty('transform');
+    startY = null; dy = 0;
+  });
+}
+
 // ---------- Baby-Esel (SVG-Maskottchen) ----------
 
 function donkeySvg(mood, size = 104, acc = null) {
@@ -245,7 +357,7 @@ function donkeySvg(mood, size = 104, acc = null) {
         INNER = '#F5CBD8', MANE = '#9C92B5', EYE = '#4A4453', BLUSH = '#F5B8C9';
 
   // Ohren: Winkel je Stimmung (aufgestellt ↔ hängend)
-  const earDeg = { sleepy: 52, hopeful: 30, happy: 18, party: 12 }[mood];
+  const earDeg = { sleepy: 52, hopeful: 30, happy: 18, party: 12, heart: 14, midnight: 46 }[mood] ?? 30;
 
   let eyes, mouth, extra = '';
   if (mood === 'sleepy') {
@@ -264,7 +376,7 @@ function donkeySvg(mood, size = 104, acc = null) {
     mouth = `<path d="M61 94 q9 8 18 0" fill="none" stroke="${DARK}" stroke-width="3" stroke-linecap="round"/>`;
     extra = `<ellipse cx="42" cy="76" rx="6" ry="3.6" fill="${BLUSH}" opacity="0.75"/>
              <ellipse cx="98" cy="76" rx="6" ry="3.6" fill="${BLUSH}" opacity="0.75"/>`;
-  } else { // party
+  } else if (mood === 'party') {
     eyes = `<path d="M48 63 q6 -8 12 0" fill="none" stroke="${EYE}" stroke-width="3.2" stroke-linecap="round"/>
             <path d="M80 63 q6 -8 12 0" fill="none" stroke="${EYE}" stroke-width="3.2" stroke-linecap="round"/>`;
     mouth = `<path d="M60 93 q10 12 20 0 z" fill="#8A5568"/>`;
@@ -272,6 +384,23 @@ function donkeySvg(mood, size = 104, acc = null) {
              <ellipse cx="98" cy="76" rx="6" ry="3.6" fill="${BLUSH}" opacity="0.8"/>
              <path d="M18 22 l2.2 5 5 2.2 -5 2.2 -2.2 5 -2.2 -5 -5 -2.2 5 -2.2 z" fill="#F0C24B"/>
              <path d="M118 40 l1.7 3.8 3.8 1.7 -3.8 1.7 -1.7 3.8 -1.7 -3.8 -3.8 -1.7 3.8 -1.7 z" fill="#F5B8C9"/>`;
+  } else if (mood === 'heart') { // Easter Egg: Doppel-Tap auf den Esel
+    const heart = (cx, cy, s) => `<path transform="translate(${cx} ${cy}) scale(${s})"
+      d="M0 3.4 C-4 -1.6 -11 -1 -11 4.4 C-11 9 -5.4 12.6 0 17 C5.4 12.6 11 9 11 4.4 C11 -1 4 -1.6 0 3.4 Z" fill="#E8536F"/>`;
+    eyes = heart(54, 61, 0.62) + heart(86, 61, 0.62);
+    mouth = `<path d="M61 94 q9 8 18 0" fill="none" stroke="${DARK}" stroke-width="3" stroke-linecap="round"/>`;
+    extra = `<ellipse cx="42" cy="76" rx="6" ry="3.6" fill="${BLUSH}" opacity="0.85"/>
+             <ellipse cx="98" cy="76" rx="6" ry="3.6" fill="${BLUSH}" opacity="0.85"/>`;
+  } else if (mood === 'midnight') { // Easter Egg: App zwischen 0–4 Uhr geöffnet
+    eyes = `<path d="M48 64 q6 4 12 0" fill="none" stroke="${EYE}" stroke-width="3" stroke-linecap="round"/>
+            <path d="M80 64 q6 4 12 0" fill="none" stroke="${EYE}" stroke-width="3" stroke-linecap="round"/>`;
+    mouth = `<ellipse cx="70" cy="96" rx="4.5" ry="5.5" fill="${DARK}"/>`;
+    extra = `<g fill="#F0C24B">
+        <circle cx="20" cy="18" r="1.6"/><circle cx="112" cy="12" r="1.3"/>
+        <circle cx="128" cy="34" r="1.6"/><circle cx="14" cy="42" r="1.3"/>
+        <path d="M100 10 l1.6 3.6 3.6 1.6 -3.6 1.6 -1.6 3.6 -1.6 -3.6 -3.6 -1.6 3.6 -1.6 Z"/>
+      </g>
+      <path d="M60 22 q10 -6 20 0 q-2 8 -10 8 q-8 0 -10 -8 Z" fill="${MANE}" opacity="0.9"/>`;
   }
 
   // Belohnungs-Accessoires (durch Streaks freigeschaltet)
@@ -391,18 +520,28 @@ function confetti() {
 }
 
 function moodFor(pct) {
+  // Easter Egg: nachts (0–4 Uhr) bekommt der Esel unabhängig vom Fortschritt sein Schlafmützen-Gesicht
+  if (new Date().getHours() < 4) return 'midnight';
   if (pct >= 100) return 'party';
   if (pct >= 50) return 'happy';
   if (pct > 0) return 'hopeful';
   return 'sleepy';
 }
 
-// Spruch pro Tag stabil, wechselt täglich
+// Spruch pro Tag stabil, wechselt täglich. Easter Egg: freitags manchmal ein Wochenend-Gruß.
 function pickQuote(mood) {
   let s = 0;
   for (const ch of iso(today())) s += ch.charCodeAt(0);
+  if (today().getDay() === 5 && s % 3 === 0) {
+    return 'Iiiaah, endlich Freitag! Zeit fürs Wochenende — aber die Habits erst noch abhaken. 🎉🥕';
+  }
   const pool = QUOTES[mood];
   return pool[s % pool.length];
+}
+
+// Zufälliger Streichel-Spruch (nicht tagesstabil — jeder Tap darf anders klingen)
+function pickPet() {
+  return PETS[Math.floor(Math.random() * PETS.length)];
 }
 
 // ---------- Rendering: Grundgerüst ----------
@@ -425,6 +564,19 @@ function render() {
 }
 
 // SVG-Fortschrittsring (pct: 0–100 oder null)
+// Mini-Fortschrittsbalken; bei Übererfüllung ein heller Overflow-Streifen obendrauf.
+// isMax: „höchstens X" (z. B. Kalorien) — hier ist ein Überschreiten eine Warnung, keine Belohnung.
+function miniBar(val, goal, c, isMax = false) {
+  if (!goal) return '';
+  const pct = Math.min(100, (val / goal) * 100);
+  const overPct = val > goal ? Math.min(100, ((val - goal) / goal) * 100) : 0;
+  const overColor = isMax ? '#E8B84B' : c.bg;
+  return `<div class="mini-bar${overPct > 0 ? ' over' : ''}">
+    <div style="width:${pct}%;background:${c.ink}"></div>
+    ${overPct > 0 ? `<div class="overflow" style="width:${overPct}%;background:${overColor}"></div>` : ''}
+  </div>`;
+}
+
 function ringSvg(pct, size = 76, stroke = 9) {
   const gid = 'rg' + Math.random().toString(36).slice(2, 7);
   const r = (size - stroke) / 2;
@@ -477,7 +629,7 @@ function renderToday() {
   const hero = document.createElement('div');
   hero.className = 'hero';
   hero.innerHTML = `
-    ${donkeySvg(mood, 104, accessoriesFor(sd))}
+    <div class="donkey-tap" role="button" aria-label="Esel streicheln">${donkeySvg(mood, 104, accessoriesFor(sd))}</div>
     <div class="hero-right">
       <div class="bubble">${pickQuote(mood)}</div>
       <div class="hero-progress">
@@ -487,6 +639,21 @@ function renderToday() {
       <div class="streak-row">${streakInfo}</div>
     </div>`;
   main.appendChild(hero);
+
+  // Easter Egg: Esel antippen zum Streicheln — kurz Herzaugen + zufälliger Spruch
+  const tapZone = hero.querySelector('.donkey-tap');
+  tapZone.addEventListener('click', () => {
+    tapZone.innerHTML = donkeySvg('heart', 104, accessoriesFor(sd));
+    tapZone.classList.add('petted');
+    const bubble = hero.querySelector('.bubble');
+    bubble.textContent = pickPet();
+    clearTimeout(tapZone._resetTimer);
+    tapZone._resetTimer = setTimeout(() => {
+      tapZone.innerHTML = donkeySvg(mood, 104, accessoriesFor(sd));
+      tapZone.classList.remove('petted');
+      bubble.textContent = pickQuote(mood);
+    }, 1800);
+  });
 
   // Wochenrückblick (sonntags für die laufende, montags für die letzte Woche)
   const review = buildReviewCard();
@@ -506,12 +673,21 @@ function renderToday() {
 
     if (h.kind === 'number') {
       const val = rawVal(h.id, t);
-      sub = `Ziel <b>${fmtNum(h.goal)} ${esc(h.unit)}</b>` +
+      const isMax = h.direction === 'max';
+      const over = h.goal > 0 && val > 0 && (isMax ? val > h.goal : val > h.goal);
+      const goalLbl = isMax ? `max. <b>${fmtNum(h.goal)} ${esc(h.unit)}</b>` : `Ziel <b>${fmtNum(h.goal)} ${esc(h.unit)}</b>`;
+      sub = goalLbl + (over ? (isMax ? ' ⚠️ überschritten' : ' ✨ übertroffen') : '') +
         (st.n > 0 ? ` &nbsp;·&nbsp; 🔥 ${st.n} ${st.unit}` : '');
-      bar = `<div class="mini-bar"><div style="width:${Math.min(100, (val / h.goal) * 100)}%;background:${c.ink}"></div></div>`;
-      action = `<button class="value-btn ${done ? 'done' : ''}"
+      bar = miniBar(val, h.goal, c, isMax);
+      action = `<button class="value-btn ${done ? 'done' : ''} ${over && isMax ? 'warn' : ''}"
         style="${done ? `background:${c.ink}` : ''}"
         aria-label="Wert eintragen">${fmtNum(val)}<span>${esc(h.unit)}</span></button>`;
+    } else if (h.kind === 'event') {
+      const evts = eventsOn(h.id, t);
+      sub = evts.length > 0
+        ? `Heute: ${evts.map((e) => esc(e.text)).join(', ')}`
+        : 'Noch kein Eintrag heute';
+      action = `<button class="value-btn event-btn" aria-label="Ereignis loggen">+</button>`;
     } else if (h.freq.type === 'daily') {
       sub = st.n > 0 ? `🔥 <b>${st.n}</b> ${st.unit} in Folge` : 'Heute noch offen';
     } else {
@@ -525,12 +701,13 @@ function renderToday() {
         cnt = countInRange(h.id, ms, addDays(ms, daysInMonth(today()) - 1));
         label2 = 'diesen Monat';
       }
-      sub = `<b>${cnt}/${h.freq.target}</b> ${label2}` +
+      const over = cnt > h.freq.target;
+      sub = `<b>${cnt}/${h.freq.target}</b> ${label2}` + (over ? ' ✨' : '') +
         (st.n > 0 ? ` &nbsp;·&nbsp; 🔥 ${st.n} ${st.unit}` : '');
-      bar = `<div class="mini-bar"><div style="width:${Math.min(100, (cnt / h.freq.target) * 100)}%;background:${c.ink}"></div></div>`;
+      bar = miniBar(cnt, h.freq.target, c);
     }
 
-    if (h.kind !== 'number') {
+    if (h.kind === 'check') {
       action = `<button class="check-btn ${done ? 'done' : ''}"
         style="${done ? `background:${c.ink}` : ''}"
         aria-label="${done ? 'Erledigt' : 'Als erledigt markieren'}">✓</button>`;
@@ -551,6 +728,8 @@ function renderToday() {
     card.querySelector('.habit-info').addEventListener('click', () => openHabitSheet(h.id));
     if (h.kind === 'number') {
       card.querySelector('.value-btn').addEventListener('click', () => openLog(h.id, t));
+    } else if (h.kind === 'event') {
+      card.querySelector('.value-btn').addEventListener('click', () => openEventLog(h.id, t));
     } else {
       card.querySelector('.check-btn').addEventListener('click', (e) => {
         const wasAll = allDoneToday();
@@ -733,6 +912,25 @@ function renderWeekStats() {
       card.innerHTML = statHead(h, `Ø <b>${fmtNum(Math.round(avg * 10) / 10)}</b> ${esc(h.unit)}`, true) +
         barChart(vals, h, c, wk, t, 'week');
       wireBars(card, h, wk, t);
+    } else if (h.kind === 'event') {
+      const cnt = eventCountInRange(h.id, wk, wkEnd);
+      card.innerHTML = statHead(h, `<b>${cnt}</b>× diese Woche`, true) + '<div class="week-row"></div>';
+      const row = card.querySelector('.week-row');
+      for (let i = 0; i < 7; i++) {
+        const d = addDays(wk, i);
+        const dIso = iso(d);
+        const n = eventsOn(h.id, dIso).length;
+        const future = d > t;
+        const cell = document.createElement('button');
+        cell.className = 'day-cell' + (n > 0 ? ' done' : '') + (future ? ' future' : '') + (dIso === iso(t) ? ' today' : '');
+        cell.title = d.toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' });
+        cell.innerHTML = `
+          <span class="dot" style="${n > 0 ? `background:${c.ink}` : ''}">${n > 0 ? n : ''}</span>
+          <span class="lbl">${WEEKDAYS[i]}</span>`;
+        if (!future) cell.addEventListener('click', () => openEventLog(h.id, dIso));
+        row.appendChild(cell);
+      }
+      card.querySelector('.stat-head').addEventListener('click', () => openDetail(h.id));
     } else {
       const cnt = countInRange(h.id, wk, wkEnd);
       let val;
@@ -815,10 +1013,13 @@ function renderMonthStats() {
     if (fromIso(h.createdAt) > mEnd) return;
 
     const isNum = h.kind === 'number';
+    const isEvent = h.kind === 'event';
     let val;
     if (isNum) {
       const sum = sumInRange(h.id, ms, mEnd);
       val = `<b>${fmtNum(sum)}</b> ${esc(h.unit)} gesamt`;
+    } else if (isEvent) {
+      val = `<b>${eventCountInRange(h.id, ms, mEnd)}</b>× diesen Monat`;
     } else {
       const cnt = countInRange(h.id, ms, mEnd);
       if (h.freq.type === 'daily') val = `<b>${cnt}</b>/${nDays} Tage`;
@@ -828,7 +1029,7 @@ function renderMonthStats() {
 
     const card = document.createElement('div');
     card.className = 'stat-card';
-    card.innerHTML = statHead(h, val, isNum) + '<div class="month-grid"></div>';
+    card.innerHTML = statHead(h, val, isNum || isEvent) + '<div class="month-grid"></div>';
 
     const grid = card.querySelector('.month-grid');
     WEEKDAYS.forEach((w) => {
@@ -852,17 +1053,25 @@ function renderMonthStats() {
       cell.title = d.toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' });
 
       if (isNum) {
-        // Heatmap: Farbintensität nach Zielerreichung (eine Farbe, hell → dunkel)
+        // Heatmap: Farbintensität nach Zielerreichung (eine Farbe, hell → dunkel).
+        // Bei „höchstens X" ist wenig gut → Ratio invertiert (voll = nah am Limit/drüber).
         const v = rawVal(h.id, dIso);
         const ratio = Math.min(1, v / h.goal);
         cell.className = 'm-cell' + (future ? ' future' : '') + (dIso === iso(t) ? ' today' : '');
         if (v > 0) {
-          cell.style.background = hexA(c.ink, 0.18 + 0.82 * ratio);
+          const warn = h.direction === 'max' && v > h.goal;
+          cell.style.background = warn ? hexA('#E8B84B', 0.18 + 0.82 * Math.min(1, ratio)) : hexA(c.ink, 0.18 + 0.82 * ratio);
           cell.style.color = ratio > 0.5 ? '#fff' : '';
           cell.style.fontWeight = '700';
         }
         cell.textContent = day;
         if (!future) cell.addEventListener('click', () => openLog(h.id, dIso));
+      } else if (isEvent) {
+        const n = eventsOn(h.id, dIso).length;
+        cell.className = 'm-cell' + (n > 0 ? ' done' : '') + (future ? ' future' : '') + (dIso === iso(t) ? ' today' : '');
+        if (n > 0) { cell.style.background = c.ink; cell.style.color = '#fff'; cell.style.fontWeight = '700'; }
+        cell.textContent = n > 0 ? n : day;
+        if (!future) cell.addEventListener('click', () => openEventLog(h.id, dIso));
       } else {
         const dDone = isDone(h.id, dIso);
         const paused = isPause(dIso) && !dDone;
@@ -875,7 +1084,7 @@ function renderMonthStats() {
       grid.appendChild(cell);
     }
 
-    if (isNum) {
+    if (isNum || isEvent) {
       card.querySelector('.stat-head').addEventListener('click', () => openDetail(h.id));
     }
     main.appendChild(card);
@@ -941,24 +1150,27 @@ function wireBars(container, h, from, t) {
 function openDetail(id) {
   detail = { id, mode: statsMode, offset: statsOffset };
   renderDetail();
-  $('#sheet-detail').classList.remove('hidden');
+  openSheet($('#sheet-detail'));
 }
 
 function renderDetail() {
   if (!detail) return;
   const h = state.habits.find((x) => x.id === detail.id);
-  if (!h) { $('#sheet-detail').classList.add('hidden'); detail = null; return; }
+  if (!h) { closeSheet($('#sheet-detail')); detail = null; return; }
   const c = COLORS[h.color] || COLORS.rose;
   const t = today();
   const box = $('#detail-content');
   box.innerHTML = '';
 
+  const isEvent = h.kind === 'event';
+
   // Kopf
+  const goalLbl = isEvent ? '' : (h.direction === 'max' ? `Höchstens ${fmtNum(h.goal)} ${esc(h.unit)}` : `Tagesziel ${fmtNum(h.goal)} ${esc(h.unit)}`);
   const head = document.createElement('div');
   head.className = 'detail-head';
   head.innerHTML = `<span class="habit-emoji">${h.emoji}</span>
     <div><h2>${esc(h.name)}</h2>
-    <p class="detail-sub">Tagesziel ${fmtNum(h.goal)} ${esc(h.unit)}</p></div>`;
+    ${goalLbl ? `<p class="detail-sub">${goalLbl}</p>` : ''}</div>`;
   box.appendChild(head);
 
   // Woche/Monat-Umschalter
@@ -989,6 +1201,11 @@ function renderDetail() {
     () => { if (detail.offset < 0) { detail.offset++; renderDetail(); } },
     detail.offset < 0));
 
+  if (isEvent) {
+    renderEventDetail(h, from, to, box);
+    return;
+  }
+
   // Werte einsammeln
   const nDays = Math.round((to - from) / 86400000) + 1;
   const vals = [];
@@ -999,6 +1216,7 @@ function renderDetail() {
   const sum = vals.reduce((a, b) => a + b, 0);
   const avg = elapsed > 0 ? sum / elapsed : 0;
   const hit = countDone(h, from, upto < from ? from : upto);
+  const hitLbl = h.direction === 'max' ? 'Im Limit' : 'Ziel erreicht';
 
   // KPI-Reihe
   const kpi = document.createElement('div');
@@ -1006,7 +1224,7 @@ function renderDetail() {
   kpi.innerHTML = `
     <div class="kpi"><div class="k-val">${fmtNum(Math.round(avg * 10) / 10)}</div><div class="k-lbl">Ø pro Tag</div></div>
     <div class="kpi"><div class="k-val">${fmtNum(sum)}</div><div class="k-lbl">${esc(h.unit)} gesamt</div></div>
-    <div class="kpi"><div class="k-val">${hit}<span class="k-of">/${elapsed}</span></div><div class="k-lbl">Ziel erreicht</div></div>`;
+    <div class="kpi"><div class="k-val">${hit}<span class="k-of">/${elapsed}</span></div><div class="k-lbl">${hitLbl}</div></div>`;
   box.appendChild(kpi);
 
   // Chart
@@ -1014,6 +1232,51 @@ function renderDetail() {
   chartWrap.innerHTML = barChart(vals, h, c, from, t, detail.mode);
   box.appendChild(chartWrap);
   wireBars(chartWrap, h, from, t);
+}
+
+// Detail-Ansicht für Ereignis-Habits: chronologische, bearbeitbare Liste statt Chart
+function renderEventDetail(h, from, to, box) {
+  const nDays = Math.round((to - from) / 86400000) + 1;
+  let total = 0;
+  const rows = [];
+  for (let i = 0; i < nDays; i++) {
+    const d = addDays(from, i);
+    const dIso = iso(d);
+    const evts = eventsOn(h.id, dIso);
+    total += evts.length;
+    evts.forEach((e, idx) => rows.push({ dIso, d, idx, text: e.text }));
+  }
+
+  const kpi = document.createElement('div');
+  kpi.className = 'kpi-row';
+  kpi.innerHTML = `<div class="kpi" style="flex:1"><div class="k-val">${total}</div><div class="k-lbl">Einträge in diesem Zeitraum</div></div>`;
+  box.appendChild(kpi);
+
+  const list = document.createElement('div');
+  list.className = 'event-list detail-event-list';
+  if (rows.length === 0) {
+    list.innerHTML = '<p class="event-empty">Keine Einträge in diesem Zeitraum.</p>';
+  } else {
+    rows.reverse().forEach((r) => {
+      const row = document.createElement('div');
+      row.className = 'event-row';
+      const dLbl = r.d.toLocaleDateString('de-DE', { day: 'numeric', month: 'short' });
+      row.innerHTML = `<span><b class="ev-date">${dLbl}</b> ${esc(r.text)}</span><button aria-label="Löschen">✕</button>`;
+      row.querySelector('button').addEventListener('click', () => {
+        removeEvent(h.id, r.dIso, r.idx);
+        renderDetail();
+        render();
+      });
+      list.appendChild(row);
+    });
+  }
+  box.appendChild(list);
+
+  const addBtn = document.createElement('button');
+  addBtn.className = 'btn ghost event-add-today';
+  addBtn.textContent = '+ Eintrag für heute';
+  addBtn.addEventListener('click', () => openEventLog(h.id, iso(today())));
+  box.appendChild(addBtn);
 }
 
 // ---------- Wert-Sheet (Zahlen-Habits) ----------
@@ -1029,9 +1292,9 @@ function openLog(habitId, isoDate) {
     weekday: 'long', day: 'numeric', month: 'long',
   });
   $('#log-current-val').textContent = fmtNum(rawVal(habitId, isoDate));
-  $('#log-unit').textContent = ` ${h.unit} · Ziel ${fmtNum(h.goal)}`;
+  $('#log-unit').textContent = ` ${h.unit} · ${h.direction === 'max' ? 'Höchstens' : 'Ziel'} ${fmtNum(h.goal)}`;
   $('#inp-log').value = '';
-  $('#sheet-log').classList.remove('hidden');
+  openSheet($('#sheet-log'));
   setTimeout(() => $('#inp-log').focus(), 250);
 }
 
@@ -1052,8 +1315,60 @@ function applyLog(mode) { // 'add' | 'set' | 'clear'
   }
   if (!wasAll && allDoneToday()) confetti();
 
-  $('#sheet-log').classList.add('hidden');
+  closeSheet($('#sheet-log'));
   logCtx = null;
+  render();
+  if (detail && !$('#sheet-detail').classList.contains('hidden')) renderDetail();
+}
+
+// ---------- Ereignis-Sheet (Ereignis-Habits) ----------
+
+function openEventLog(habitId, isoDate) {
+  const h = state.habits.find((x) => x.id === habitId);
+  if (!h) return;
+  eventCtx = { habitId, date: isoDate };
+
+  $('#event-title').textContent = `${h.emoji} ${h.name}`;
+  const d = fromIso(isoDate);
+  $('#event-sub').textContent = d.toLocaleDateString('de-DE', {
+    weekday: 'long', day: 'numeric', month: 'long',
+  });
+  $('#inp-event').value = '';
+  renderEventList();
+  openSheet($('#sheet-event'));
+  setTimeout(() => $('#inp-event').focus(), 250);
+}
+
+function renderEventList() {
+  if (!eventCtx) return;
+  const list = $('#event-list');
+  const evts = eventsOn(eventCtx.habitId, eventCtx.date);
+  list.innerHTML = '';
+  if (evts.length === 0) {
+    list.innerHTML = '<p class="event-empty">Noch kein Eintrag für diesen Tag.</p>';
+    return;
+  }
+  evts.forEach((e, i) => {
+    const row = document.createElement('div');
+    row.className = 'event-row';
+    row.innerHTML = `<span>${esc(e.text)}</span><button aria-label="Löschen">✕</button>`;
+    row.querySelector('button').addEventListener('click', () => {
+      removeEvent(eventCtx.habitId, eventCtx.date, i);
+      renderEventList();
+      render();
+      if (detail && !$('#sheet-detail').classList.contains('hidden')) renderDetail();
+    });
+    list.appendChild(row);
+  });
+}
+
+function addEventEntry() {
+  if (!eventCtx) return;
+  const text = $('#inp-event').value.trim();
+  if (!text) { $('#inp-event').focus(); return; }
+  addEvent(eventCtx.habitId, eventCtx.date, text);
+  $('#inp-event').value = '';
+  renderEventList();
   render();
   if (detail && !$('#sheet-detail').classList.contains('hidden')) renderDetail();
 }
@@ -1073,11 +1388,11 @@ function openHabitSheet(id) {
   $('#kind-block').classList.toggle('hidden', !!h);
 
   sheetSel = h
-    ? { emoji: h.emoji, color: h.color, freq: h.freq.type, target: h.freq.target, kind: h.kind || 'check' }
-    : { emoji: EMOJIS[0], color: 'rose', freq: 'daily', target: 3, kind: 'check' };
+    ? { emoji: h.emoji, color: h.color, freq: h.freq.type, target: h.freq.target, kind: h.kind || 'check', direction: h.direction || 'min' }
+    : { emoji: EMOJIS[0], color: 'rose', freq: 'daily', target: 3, kind: 'check', direction: 'min' };
 
   renderSheetControls();
-  $('#sheet-habit').classList.remove('hidden');
+  openSheet($('#sheet-habit'));
   if (!h) setTimeout(() => $('#inp-name').focus(), 250);
 }
 
@@ -1086,8 +1401,15 @@ function renderSheetControls() {
   document.querySelectorAll('#kind-seg button').forEach((b) =>
     b.classList.toggle('active', b.dataset.kind === sheetSel.kind));
   const isNum = sheetSel.kind === 'number';
-  $('#freq-block').classList.toggle('hidden', isNum);
+  const isEvent = sheetSel.kind === 'event';
+  $('#freq-block').classList.toggle('hidden', isNum || isEvent);
   $('#number-block').classList.toggle('hidden', !isNum);
+
+  if (isNum) {
+    document.querySelectorAll('#direction-seg button').forEach((b) =>
+      b.classList.toggle('active', b.dataset.dir === sheetSel.direction));
+    $('#goal-label').textContent = sheetSel.direction === 'max' ? 'Höchstgrenze' : 'Tagesziel';
+  }
 
   // Emojis (Presets + eigenes)
   const er = $('#emoji-row');
@@ -1106,10 +1428,10 @@ function renderSheetControls() {
   cr.innerHTML = '';
   Object.entries(COLORS).forEach(([key, c]) => {
     const b = document.createElement('button');
-    b.style.background = c.bg;
-    b.style.boxShadow = `inset 0 0 0 8px ${c.bg}, inset 0 0 0 22px ${c.ink}`;
+    b.style.background = c.ink;
     b.setAttribute('aria-label', key);
     b.classList.toggle('active', key === sheetSel.color);
+    b.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4.5 4.5L19 7"/></svg>';
     b.addEventListener('click', () => { sheetSel.color = key; renderSheetControls(); });
     cr.appendChild(b);
   });
@@ -1130,6 +1452,7 @@ function saveHabit() {
   if (!name) { $('#inp-name').focus(); return; }
 
   const isNum = sheetSel.kind === 'number';
+  const isEvent = sheetSel.kind === 'event';
   let unit = '', goal = 0;
   if (isNum) {
     unit = $('#inp-unit').value.trim() || '×';
@@ -1137,14 +1460,14 @@ function saveHabit() {
     if (isNaN(goal) || goal <= 0) { $('#inp-goal').focus(); return; }
   }
 
-  const freq = isNum
+  const freq = (isNum || isEvent)
     ? { type: 'daily', target: 1 }
     : { type: sheetSel.freq, target: sheetSel.freq === 'daily' ? 1 : sheetSel.target };
 
   if (editingId) {
     const h = state.habits.find((x) => x.id === editingId);
     Object.assign(h, { name, emoji: sheetSel.emoji, color: sheetSel.color, freq });
-    if (h.kind === 'number') { h.unit = unit; h.goal = goal; }
+    if (h.kind === 'number') { h.unit = unit; h.goal = goal; h.direction = sheetSel.direction; }
   } else {
     state.habits.push({
       id: 'h' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
@@ -1154,12 +1477,13 @@ function saveHabit() {
       kind: sheetSel.kind,
       unit,
       goal,
+      direction: sheetSel.direction,
       freq,
       createdAt: iso(today()),
     });
   }
   save();
-  $('#sheet-habit').classList.add('hidden');
+  closeSheet($('#sheet-habit'));
   editingId = null;
   render();
 }
@@ -1171,7 +1495,7 @@ function deleteHabit() {
   state.habits = state.habits.filter((x) => x.id !== editingId);
   delete state.logs[editingId];
   save();
-  $('#sheet-habit').classList.add('hidden');
+  closeSheet($('#sheet-habit'));
   editingId = null;
   render();
 }
@@ -1231,7 +1555,7 @@ function importData(file) {
       migrate(data);
       state = data;
       save();
-      $('#sheet-settings').classList.add('hidden');
+      closeSheet($('#sheet-settings'));
       render();
     } catch (e) {
       alert('Die Datei konnte nicht gelesen werden. Ist es ein Export dieser App?');
@@ -1248,7 +1572,7 @@ document.querySelectorAll('.tab').forEach((b) =>
 $('#btn-add').addEventListener('click', () => openHabitSheet(null));
 $('#btn-settings').addEventListener('click', () => {
   renderSettings();
-  $('#sheet-settings').classList.remove('hidden');
+  openSheet($('#sheet-settings'));
 });
 
 $('#btn-pause-today').addEventListener('click', () => {
@@ -1262,13 +1586,13 @@ $('#btn-pause-today').addEventListener('click', () => {
 
 $('#btn-save-habit').addEventListener('click', saveHabit);
 $('#btn-cancel-habit').addEventListener('click', () => {
-  $('#sheet-habit').classList.add('hidden');
+  closeSheet($('#sheet-habit'));
   editingId = null;
 });
 $('#btn-delete-habit').addEventListener('click', deleteHabit);
-$('#btn-close-settings').addEventListener('click', () => $('#sheet-settings').classList.add('hidden'));
+$('#btn-close-settings').addEventListener('click', () => closeSheet($('#sheet-settings')));
 $('#btn-close-detail').addEventListener('click', () => {
-  $('#sheet-detail').classList.add('hidden');
+  closeSheet($('#sheet-detail'));
   detail = null;
 });
 
@@ -1293,6 +1617,9 @@ $('#inp-log').addEventListener('keydown', (e) => { if (e.key === 'Enter') applyL
 document.querySelectorAll('#kind-seg button').forEach((b) =>
   b.addEventListener('click', () => { sheetSel.kind = b.dataset.kind; renderSheetControls(); }));
 
+document.querySelectorAll('#direction-seg button').forEach((b) =>
+  b.addEventListener('click', () => { sheetSel.direction = b.dataset.dir; renderSheetControls(); }));
+
 document.querySelectorAll('#freq-seg button').forEach((b) =>
   b.addEventListener('click', () => { sheetSel.freq = b.dataset.freq; renderSheetControls(); }));
 
@@ -1310,15 +1637,15 @@ $('#btn-log-add').addEventListener('click', () => applyLog('add'));
 $('#btn-log-set').addEventListener('click', () => applyLog('set'));
 $('#btn-log-clear').addEventListener('click', () => applyLog('clear'));
 
+$('#btn-event-add').addEventListener('click', addEventEntry);
+$('#btn-close-event').addEventListener('click', () => closeSheet($('#sheet-event')));
+$('#inp-event').addEventListener('keydown', (e) => { if (e.key === 'Enter') addEventEntry(); });
+
 // Backdrop-Tap schließt jeweils nur das eigene Sheet
-document.querySelectorAll('.sheet-backdrop').forEach((bd) =>
-  bd.addEventListener('click', (e) => {
-    if (e.target !== bd) return;
-    bd.classList.add('hidden');
-    if (bd.id === 'sheet-habit') editingId = null;
-    if (bd.id === 'sheet-log') logCtx = null;
-    if (bd.id === 'sheet-detail') detail = null;
-  }));
+document.querySelectorAll('.sheet-backdrop').forEach((bd) => {
+  bd.addEventListener('click', (e) => { if (e.target === bd) closeSheet(bd); });
+  wireSwipeToDismiss(bd);
+});
 
 $('#btn-export').addEventListener('click', exportData);
 $('#btn-import').addEventListener('click', () => $('#inp-import').click());

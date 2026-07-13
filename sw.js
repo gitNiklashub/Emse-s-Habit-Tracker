@@ -1,7 +1,7 @@
 /* Service Worker — App-Shell offline verfügbar machen.
    Bei Änderungen an den App-Dateien VERSION hochzählen. */
 
-const VERSION = 'v6';
+const VERSION = 'v8';
 const CACHE = `emse-habits-${VERSION}`;
 const ASSETS = [
   './',
