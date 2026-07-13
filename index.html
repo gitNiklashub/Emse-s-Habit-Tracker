@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="color-scheme" content="light">
+  <meta name="theme-color" content="#FDF8F4">
+  <title>Emse's Habit Tracker</title>
+
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Habits">
+
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app">
+
+    <header class="app-header">
+      <div>
+        <h1 id="header-title">Heute</h1>
+        <p id="header-date" class="header-date"></p>
+      </div>
+      <button id="btn-settings" class="icon-btn" aria-label="Einstellungen">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+          <path d="M4 7h9M18.5 7H20M4 17h3.5M13 17h7"/>
+          <circle cx="15.75" cy="7" r="2.4"/>
+          <circle cx="10.25" cy="17" r="2.4"/>
+        </svg>
+      </button>
+    </header>
+
+    <main id="main" class="main"></main>
+
+    <nav class="tabbar">
+      <button class="tab active" data-view="today">
+        <svg class="tab-svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round">
+          <circle cx="12" cy="12" r="4.1"/>
+          <path d="M12 2.9v2M12 19.1v2M2.9 12h2M19.1 12h2M5.6 5.6l1.5 1.5M16.9 16.9l1.5 1.5M18.4 5.6l-1.5 1.5M7.1 16.9l-1.5 1.5"/>
+        </svg>
+        <span>Heute</span>
+      </button>
+      <button id="btn-add" class="fab" aria-label="Habit hinzufügen">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round">
+          <path d="M12 5.5v13M5.5 12h13"/>
+        </svg>
+      </button>
+      <button class="tab" data-view="stats">
+        <svg class="tab-svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round">
+          <path d="M5.5 19.5v-6"/>
+          <path d="M12 19.5v-14"/>
+          <path d="M18.5 19.5v-9"/>
+        </svg>
+        <span>Statistik</span>
+      </button>
+    </nav>
+
+  </div>
+
+  <!-- Habit anlegen / bearbeiten -->
+  <div id="sheet-habit" class="sheet-backdrop hidden">
+    <div class="sheet" role="dialog" aria-modal="true">
+      <div class="sheet-handle"></div>
+      <h2 id="sheet-habit-title">Neuer Habit</h2>
+
+      <label class="field-label" for="inp-name">Name</label>
+      <input id="inp-name" type="text" placeholder="z. B. Lesen, Sport, Eiweiß" maxlength="40">
+
+      <div id="kind-block">
+        <label class="field-label">Art</label>
+        <div class="seg" id="kind-seg">
+          <button data-kind="check" class="active">Abhaken ✓</button>
+          <button data-kind="number">Zahl erfassen 123</button>
+        </div>
+      </div>
+
+      <label class="field-label">Symbol</label>
+      <div class="emoji-row" id="emoji-row"></div>
+      <input id="inp-emoji" type="text" class="emoji-custom" placeholder="… oder eigenes Emoji eintippen" maxlength="8" autocomplete="off">
+
+      <label class="field-label">Farbe</label>
+      <div class="color-row" id="color-row"></div>
+
+      <div id="freq-block">
+        <label class="field-label">Regelmäßigkeit</label>
+        <div class="seg" id="freq-seg">
+          <button data-freq="daily" class="active">Täglich</button>
+          <button data-freq="weekly">Wöchentlich</button>
+          <button data-freq="monthly">Monatlich</button>
+        </div>
+
+        <div id="target-block" class="target-block hidden">
+          <label class="field-label" id="target-label">Ziel pro Woche</label>
+          <div class="stepper">
+            <button id="target-minus">−</button>
+            <span id="target-value">3</span>
+            <button id="target-plus">+</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="number-block" class="hidden">
+        <div class="two-col">
+          <div>
+            <label class="field-label" for="inp-unit">Einheit</label>
+            <input id="inp-unit" type="text" placeholder="g, ml, min…" maxlength="10">
+          </div>
+          <div>
+            <label class="field-label" for="inp-goal">Tagesziel</label>
+            <input id="inp-goal" type="text" inputmode="decimal" placeholder="z. B. 100">
+          </div>
+        </div>
+      </div>
+
+      <div class="sheet-actions">
+        <button id="btn-delete-habit" class="btn danger hidden">Löschen</button>
+        <button id="btn-cancel-habit" class="btn ghost">Abbrechen</button>
+        <button id="btn-save-habit" class="btn primary">Speichern</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Wert eintragen (Zahlen-Habits) -->
+  <div id="sheet-log" class="sheet-backdrop hidden">
+    <div class="sheet" role="dialog" aria-modal="true">
+      <div class="sheet-handle"></div>
+      <h2 id="log-title">Wert eintragen</h2>
+      <p id="log-sub" class="log-sub"></p>
+
+      <div class="log-current">
+        <span id="log-current-val">0</span>
+        <span id="log-unit" class="log-unit"></span>
+      </div>
+
+      <label class="field-label" for="inp-log">Wert</label>
+      <input id="inp-log" type="text" inputmode="decimal" placeholder="z. B. 25">
+
+      <div class="sheet-actions">
+        <button id="btn-log-clear" class="btn danger" title="Eintrag für diesen Tag löschen">Leeren</button>
+        <button id="btn-log-set" class="btn ghost">Setzen</button>
+        <button id="btn-log-add" class="btn primary">+ Dazu</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Habit-Detail (Visualisierung) -->
+  <div id="sheet-detail" class="sheet-backdrop hidden">
+    <div class="sheet" role="dialog" aria-modal="true">
+      <div class="sheet-handle"></div>
+      <div id="detail-content"></div>
+      <div class="sheet-actions">
+        <button id="btn-close-detail" class="btn primary">Fertig</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Einstellungen -->
+  <div id="sheet-settings" class="sheet-backdrop hidden">
+    <div class="sheet" role="dialog" aria-modal="true">
+      <div class="sheet-handle"></div>
+      <h2>Einstellungen</h2>
+
+      <div class="settings-group">
+        <h3>Pause-Tag</h3>
+        <p class="hint">Urlaub oder krank? Ein Pause-Tag bricht deine Serien nicht und zählt nicht als fällig.</p>
+        <div class="settings-actions">
+          <button id="btn-pause-today" class="btn ghost">Heute pausieren</button>
+        </div>
+      </div>
+
+      <div class="settings-group" id="sort-group">
+        <h3>Reihenfolge</h3>
+        <div id="sort-list"></div>
+      </div>
+
+      <div class="settings-group">
+        <h3>Daten</h3>
+        <p class="hint">Alle Daten liegen nur lokal auf diesem Gerät (im Browser-Speicher). Mit Export kannst du ein Backup als Datei sichern.</p>
+        <div class="settings-actions">
+          <button id="btn-export" class="btn ghost">Exportieren</button>
+          <button id="btn-import" class="btn ghost">Importieren</button>
+          <input id="inp-import" type="file" accept="application/json" class="hidden">
+        </div>
+      </div>
+
+      <div class="settings-group">
+        <h3>Auf dem iPhone installieren</h3>
+        <p class="hint">In Safari öffnen → Teilen-Button → „Zum Home-Bildschirm“. Danach startet die App wie eine normale App vom Homescreen.</p>
+      </div>
+
+      <div class="sheet-actions">
+        <button id="btn-close-settings" class="btn primary">Fertig</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
