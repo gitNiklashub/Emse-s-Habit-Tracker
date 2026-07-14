@@ -77,6 +77,7 @@ let state = load();
 let view = 'today';               // 'today' | 'stats'
 let statsMode = 'week';           // 'week' | 'month'
 let statsOffset = 0;              // 0 = aktuelle Periode, -1 = vorherige, …
+let dayOffset = 0;                // Heute-Ansicht: 0 = heute, -1 = gestern, …
 let editingId = null;             // Habit-ID im Sheet (null = neu)
 let sheetSel = { emoji: EMOJIS[0], color: 'rose', freq: 'daily', target: 3, kind: 'check', direction: 'min' };
 let logCtx = null;                // { habitId, date } fürs Wert-Sheet
@@ -223,11 +224,29 @@ function dueDaysBetween(from, to) {
   return n;
 }
 
+// „Zählt der Tag für diesen Habit als erfüllt?" — der Unterschied zu doneOn:
+// Wochen-/Monats-Habits gelten auch als erfüllt, wenn das Periodenziel schon
+// erreicht ist (Gym 3×/Woche am Donnerstag = ✓, wenn Mo–Mi gemacht).
+function dayFulfilled(h, isoDate) {
+  if (h.kind === 'event') return false;
+  if (doneOn(h, isoDate)) return true;
+  const d = fromIso(isoDate);
+  if (h.freq.type === 'weekly') {
+    const wk = monday(d);
+    return countInRange(h.id, wk, addDays(wk, 6)) >= h.freq.target;
+  }
+  if (h.freq.type === 'monthly') {
+    const ms = monthStart(d);
+    return countInRange(h.id, ms, new Date(ms.getFullYear(), ms.getMonth() + 1, 0)) >= h.freq.target;
+  }
+  return false;
+}
+
 function allDoneToday() {
   const t = iso(today());
   // Ereignis-Habits sind reine Logs ohne Ziel — sie zählen nicht zur Tageserfüllung
   const trackable = state.habits.filter((h) => h.kind !== 'event');
-  return trackable.length > 0 && trackable.every((h) => doneOn(h, t));
+  return trackable.length > 0 && trackable.every((h) => dayFulfilled(h, t));
 }
 
 // ---------- Streaks ----------
@@ -445,17 +464,6 @@ const REWARDS = [
   { days: 66, key: 'crown',  icon: '👑', label: 'Krone' },
 ];
 
-// Beste aktuelle Serie über alle Habits, umgerechnet in Tage
-function bestStreakDays() {
-  let best = 0;
-  state.habits.forEach((h) => {
-    const st = streak(h);
-    const factor = h.freq.type === 'weekly' ? 7 : h.freq.type === 'monthly' ? 30 : 1;
-    best = Math.max(best, st.n * factor);
-  });
-  return best;
-}
-
 function accessoriesFor(days) {
   return {
     flower: days >= 7,
@@ -540,11 +548,23 @@ const $ = (sel) => document.querySelector(sel);
 const main = $('#main');
 
 function render() {
-  $('#header-title').textContent = view === 'today' ? 'Heute' : 'Statistik';
-  const t = new Date();
-  $('#header-date').textContent = t.toLocaleDateString('de-DE', {
-    weekday: 'long', day: 'numeric', month: 'long',
+  const vd = addDays(today(), view === 'today' ? dayOffset : 0);
+  $('#header-title').textContent = view === 'stats' ? 'Statistik'
+    : dayOffset === 0 ? 'Heute'
+    : dayOffset === -1 ? 'Gestern'
+    : vd.toLocaleDateString('de-DE', { weekday: 'long' });
+  $('#header-date').textContent = vd.toLocaleDateString('de-DE', {
+    weekday: dayOffset === 0 || view === 'stats' ? 'long' : undefined,
+    day: 'numeric', month: 'long',
   });
+
+  // Tages-Pfeile: nur in der Heute-Ansicht, Zukunft gesperrt;
+  // bei vergangenem Tag springt ein Tipp auf Titel/Datum zurück zu Heute
+  const isTodayView = view === 'today';
+  $('#day-prev').classList.toggle('hidden', !isTodayView);
+  $('#day-next').classList.toggle('hidden', !isTodayView);
+  $('#day-next').disabled = dayOffset >= 0;
+  $('#header-day').classList.toggle('jumpable', isTodayView && dayOffset < 0);
 
   document.querySelectorAll('.tab').forEach((b) =>
     b.classList.toggle('active', b.dataset.view === view));
@@ -598,21 +618,33 @@ function renderToday() {
     return;
   }
 
-  const t = iso(today());
+  const vd = addDays(today(), dayOffset); // betrachteter Tag (Navigation im Header)
+  const t = iso(vd);
+  const isToday = dayOffset === 0;
 
-  // Hero: Baby-Esel mit Stimmung + Spruch + Fortschritt
-  // (Ereignis-Habits sind reine Logs und zählen nicht zum Tagesfortschritt)
+  // Hero: Baby-Esel mit Stimmung + Spruch + Fortschritt des betrachteten Tags.
+  // Wochen-/Monats-Habits zählen als erfüllt, sobald ihr Periodenziel steht;
+  // Ereignis-Habits sind reine Logs und zählen gar nicht mit.
   const trackable = state.habits.filter((h) => h.kind !== 'event');
-  const doneCount = trackable.filter((h) => doneOn(h, t)).length;
+  const doneCount = trackable.filter((h) => dayFulfilled(h, t)).length;
   const total = trackable.length;
   const pct = total > 0 ? Math.round((doneCount / total) * 100) : 0;
   const mood = moodFor(total > 0 ? pct : 1); // nur Ereignis-Habits → neutral-hoffnungsvoll
 
-  // Streak & Belohnungen
-  const sd = bestStreakDays();
+  // Streak & Belohnungen: beste Serie in ihrer eigenen Einheit + Habit-Name,
+  // damit Tages- und Wochen-Serien nicht durcheinandergehen
+  let best = null;
+  state.habits.forEach((h) => {
+    if (h.kind === 'event') return;
+    const st = streak(h);
+    if (st.n === 0) return;
+    const days = st.n * (h.freq.type === 'weekly' ? 7 : h.freq.type === 'monthly' ? 30 : 1);
+    if (!best || days > best.days) best = { h, st, days };
+  });
+  const sd = best ? best.days : 0;
   const next = REWARDS.find((r) => sd < r.days);
-  const streakInfo = sd > 0
-    ? `🔥 <b>${sd}</b> ${sd === 1 ? 'Tag' : 'Tage'} beste Serie` +
+  const streakInfo = best
+    ? `🔥 Beste Serie: <b>${best.st.n} ${best.st.unit}</b> <span class="streak-habit">${best.h.emoji} ${esc(best.h.name)}</span>` +
       (next
         ? `<span class="next-reward">${next.icon} ${next.label} in ${next.days - sd} ${next.days - sd === 1 ? 'Tag' : 'Tagen'}</span>`
         : '<span class="next-reward">👑 Alles freigeschaltet!</span>')
@@ -648,8 +680,10 @@ function renderToday() {
   });
 
   // Wochenrückblick (sonntags für die laufende, montags für die letzte Woche)
-  const review = buildReviewCard();
-  if (review) main.appendChild(review);
+  if (isToday) {
+    const review = buildReviewCard();
+    if (review) main.appendChild(review);
+  }
 
   const label = document.createElement('div');
   label.className = 'section-label';
@@ -675,28 +709,35 @@ function renderToday() {
         style="${done ? `background:${c.ink}` : ''}"
         aria-label="Wert eintragen">${fmtNum(val)}<span>${esc(h.unit)}</span></button>`;
     } else if (h.kind === 'event') {
-      const cntToday = rawVal(h.id, t);
-      const ms = monthStart(today());
-      const cntMonth = sumInRange(h.id, ms, addDays(ms, daysInMonth(today()) - 1));
-      sub = cntToday > 0
-        ? `<b>${cntToday}×</b> heute &nbsp;·&nbsp; ${cntMonth}× diesen Monat`
-        : (cntMonth > 0 ? `<b>${cntMonth}×</b> diesen Monat` : 'Tippe +, wenn es passiert');
-      action = `<button class="value-btn event-btn" aria-label="Ereignis für heute loggen">+</button>`;
+      const cntDay = rawVal(h.id, t);
+      const ms = monthStart(vd);
+      const cntMonth = sumInRange(h.id, ms, addDays(ms, daysInMonth(vd) - 1));
+      sub = cntDay > 0
+        ? `<b>${cntDay}×</b> ${isToday ? 'heute' : 'an dem Tag'} &nbsp;·&nbsp; ${cntMonth}× im Monat`
+        : (cntMonth > 0 ? `<b>${cntMonth}×</b> im Monat` : 'Passiert einfach — kein Ziel');
+      // Kein +: geloggt wird übers Plus-Formular; Badge zeigt den Zähler,
+      // antippen öffnet das Anpassen-Sheet für diesen Tag
+      action = `<button class="value-btn event-badge" aria-label="Zähler anpassen">${cntDay}<span>×</span></button>`;
     } else if (h.freq.type === 'daily') {
-      sub = st.n > 0 ? `🔥 <b>${st.n}</b> ${st.unit} in Folge` : 'Heute noch offen';
+      sub = st.n > 0 ? `🔥 <b>${st.n}</b> ${st.unit} in Folge`
+        : (isToday ? 'Heute noch offen' : 'An dem Tag offen');
     } else {
+      // Wochen-/Monats-Habit: Fortschritt in der Periode des betrachteten Tags
       let cnt, label2;
       if (h.freq.type === 'weekly') {
-        const wk = monday(today());
+        const wk = monday(vd);
         cnt = countInRange(h.id, wk, addDays(wk, 6));
         label2 = 'diese Woche';
       } else {
-        const ms = monthStart(today());
-        cnt = countInRange(h.id, ms, addDays(ms, daysInMonth(today()) - 1));
+        const ms = monthStart(vd);
+        cnt = countInRange(h.id, ms, addDays(ms, daysInMonth(vd) - 1));
         label2 = 'diesen Monat';
       }
+      const reached = cnt >= h.freq.target;
       const over = cnt > h.freq.target;
-      sub = `<b>${cnt}/${h.freq.target}</b> ${label2}` + (over ? ' ✨' : '') +
+      sub = (reached
+        ? `Ziel erreicht ✓ <b>${cnt}/${h.freq.target}</b>${over ? ' ✨' : ''}`
+        : `<b>${cnt}/${h.freq.target}</b> ${label2}`) +
         (st.n > 0 ? ` &nbsp;·&nbsp; 🔥 ${st.n} ${st.unit}` : '');
       bar = miniBar(cnt, h.freq.target, c);
     }
@@ -723,12 +764,7 @@ function renderToday() {
     if (h.kind === 'number') {
       card.querySelector('.value-btn').addEventListener('click', () => openLog(h.id, t));
     } else if (h.kind === 'event') {
-      // Direkt loggen — kein Sheet, kein Grund nötig
-      card.querySelector('.value-btn').addEventListener('click', (e) => {
-        bumpEvent(h.id, t);
-        e.currentTarget.classList.add('pop');
-        render();
-      });
+      card.querySelector('.value-btn').addEventListener('click', () => openEventLog(h.id, t));
     } else {
       card.querySelector('.check-btn').addEventListener('click', (e) => {
         const wasAll = allDoneToday();
@@ -1564,7 +1600,13 @@ function importData(file) {
 // ---------- Events ----------
 
 document.querySelectorAll('.tab').forEach((b) =>
-  b.addEventListener('click', () => { view = b.dataset.view; statsOffset = 0; render(); }));
+  b.addEventListener('click', () => { view = b.dataset.view; statsOffset = 0; dayOffset = 0; render(); }));
+
+$('#day-prev').addEventListener('click', () => { dayOffset--; render(); });
+$('#day-next').addEventListener('click', () => { if (dayOffset < 0) { dayOffset++; render(); } });
+$('#header-day').addEventListener('click', () => {
+  if (view === 'today' && dayOffset < 0) { dayOffset = 0; render(); }
+});
 
 $('#btn-add').addEventListener('click', () => openHabitSheet(null));
 $('#btn-settings').addEventListener('click', () => {

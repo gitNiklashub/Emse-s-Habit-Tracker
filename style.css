@@ -1168,3 +1168,36 @@ body.scroll-lock {
 .event-row { width: 100%; text-align: left; border: none; cursor: pointer; }
 .event-row .ev-count { font-weight: 800; color: var(--ink); }
 .event-row .chev { color: var(--faint); font-weight: 700; flex: 0 0 auto; }
+
+/* ---------- Tages-Navigation (im Header) ---------- */
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.day-nav-btn {
+  width: 38px;
+  height: 38px;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.day-nav-btn:disabled { opacity: 0.3; cursor: default; }
+
+/* Vergangener Tag: Titel/Datum antippen springt zurück zu Heute */
+#header-day.jumpable { cursor: pointer; }
+#header-day.jumpable .header-date {
+  color: var(--accent);
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+
+.streak-row .streak-habit {
+  font-weight: 700;
+  color: var(--ink);
+}
+
+/* Ereignis-Badge (nur Anzeige + Anpassen, kein Schnell-Log) */
+.value-btn.event-badge { color: var(--muted); }
+.value-btn.event-badge span { margin-left: 1px; }

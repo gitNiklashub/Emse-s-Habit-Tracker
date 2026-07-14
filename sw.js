@@ -2,7 +2,7 @@
    Strategie: network-first für ALLES (frische Dateien, wenn online),
    Cache nur als Offline-Fallback. Bei Änderungen VERSION hochzählen. */
 
-const VERSION = 'v10';
+const VERSION = 'v12';
 const CACHE = `emse-habits-${VERSION}`;
 const ASSETS = [
   './',

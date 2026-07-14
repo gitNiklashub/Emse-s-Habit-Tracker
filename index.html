@@ -15,23 +15,27 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Habits">
 
-  <link rel="stylesheet" href="style.css?v=10">
+  <link rel="stylesheet" href="style.css?v=12">
 </head>
 <body>
   <div class="app">
 
     <header class="app-header">
-      <div>
+      <div id="header-day">
         <h1 id="header-title">Heute</h1>
         <p id="header-date" class="header-date"></p>
       </div>
-      <button id="btn-settings" class="icon-btn" aria-label="Einstellungen">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
-          <path d="M4 7h9M18.5 7H20M4 17h3.5M13 17h7"/>
-          <circle cx="15.75" cy="7" r="2.4"/>
-          <circle cx="10.25" cy="17" r="2.4"/>
-        </svg>
-      </button>
+      <div class="header-actions">
+        <button id="day-prev" class="icon-btn day-nav-btn" aria-label="Vorheriger Tag">‹</button>
+        <button id="day-next" class="icon-btn day-nav-btn" aria-label="Nächster Tag" disabled>›</button>
+        <button id="btn-settings" class="icon-btn" aria-label="Einstellungen">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+            <path d="M4 7h9M18.5 7H20M4 17h3.5M13 17h7"/>
+            <circle cx="15.75" cy="7" r="2.4"/>
+            <circle cx="10.25" cy="17" r="2.4"/>
+          </svg>
+        </button>
+      </div>
     </header>
 
     <main id="main" class="main"></main>
@@ -229,6 +233,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=10"></script>
+  <script src="app.js?v=12"></script>
 </body>
 </html>
