@@ -15,7 +15,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Habits">
 
-  <link rel="stylesheet" href="style.css?v=12">
+  <link rel="stylesheet" href="style.css?v=17">
 </head>
 <body>
   <div class="app">
@@ -76,10 +76,11 @@
 
       <div id="kind-block">
         <label class="field-label">Art</label>
-        <div class="seg seg-3" id="kind-seg">
+        <div class="seg seg-grid" id="kind-seg">
           <button data-kind="check" class="active">Abhaken ✓</button>
           <button data-kind="number">Zahl 123</button>
           <button data-kind="event">Ereignis 📝</button>
+          <button data-kind="quit">Verzicht 🌱</button>
         </div>
       </div>
 
@@ -111,6 +112,11 @@
             <button id="target-plus">+</button>
           </div>
         </div>
+      </div>
+
+      <div id="days-block" class="hidden">
+        <label class="field-label">An welchen Tagen?</label>
+        <div class="days-row" id="days-row"></div>
       </div>
 
       <div id="number-block" class="hidden">
@@ -182,6 +188,19 @@
     </div>
   </div>
 
+  <!-- Stimmung nachtragen (über die Statistik) -->
+  <div id="sheet-mood" class="sheet-backdrop hidden">
+    <div class="sheet" role="dialog" aria-modal="true">
+      <div class="sheet-handle"></div>
+      <h2>💭 Stimmung</h2>
+      <p id="mood-sub" class="log-sub"></p>
+      <div class="mood-row" id="mood-sheet-row"></div>
+      <div class="sheet-actions">
+        <button id="btn-close-mood" class="btn primary">Fertig</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Habit-Detail (Visualisierung) -->
   <div id="sheet-detail" class="sheet-backdrop hidden">
     <div class="sheet" role="dialog" aria-modal="true">
@@ -233,6 +252,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=12"></script>
+  <script src="app.js?v=17"></script>
 </body>
 </html>

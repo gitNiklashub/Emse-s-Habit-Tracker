@@ -45,8 +45,11 @@ python3 -m http.server 8080
 # → http://localhost:8080
 ```
 
-Bei Änderungen an den App-Dateien die `VERSION` in `sw.js` hochzählen,
-damit installierte Apps das Update ziehen.
+Bei jedem Update drei Stellen pflegen:
+1. `VERSION` in `sw.js` hochzählen (Cache-Invalidierung)
+2. `?v=` an den Asset-Links in `index.html` anpassen
+3. `APP_VERSION` + `CHANGELOG`-Eintrag in `app.js` ergänzen —
+   daraus baut die App die einmalige „Was ist neu"-Karte
 
 ## Dateien
 

@@ -784,7 +784,9 @@ body.scroll-lock {
   align-items: flex-end;
   gap: 6px;
   margin-top: 26px;
-  padding-top: 16px; /* Platz für Wert-Labels */
+  /* Kein padding-top: Balken (Content-Box) und Ziellinie (Padding-Box) müssen
+     im selben Koordinatensystem rechnen. Luft für Labels/Ziellinie kommt aus
+     dem 1.18-Headroom in barChart(). */
 }
 .chart.month { gap: 2px; }
 
@@ -906,7 +908,7 @@ body.scroll-lock {
   margin-top: 2px;
 }
 
-#sheet-detail .chart { background: var(--card); border-radius: 18px 18px 0 0; padding: 16px 12px 0; box-shadow: var(--shadow-soft); height: 170px; margin-top: 14px; }
+#sheet-detail .chart { background: var(--card); border-radius: 18px 18px 0 0; padding: 0 12px; box-shadow: var(--shadow-soft); height: 170px; margin-top: 14px; }
 #sheet-detail .chart .goal-line { left: 12px; right: 12px; }
 #sheet-detail .chart-x { background: var(--card); border-radius: 0 0 18px 18px; padding: 0 12px 12px; margin-top: 0; box-shadow: var(--shadow-soft); }
 
@@ -1201,3 +1203,226 @@ body.scroll-lock {
 /* Ereignis-Badge (nur Anzeige + Anpassen, kein Schnell-Log) */
 .value-btn.event-badge { color: var(--muted); }
 .value-btn.event-badge span { margin-left: 1px; }
+
+/* ---------- Art-Auswahl als 2×2-Grid ---------- */
+
+.seg.seg-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px;
+}
+.seg.seg-grid button { padding: 11px 0; }
+
+/* ---------- Wochentag-Picker ---------- */
+
+.days-row { display: flex; gap: 7px; }
+.days-row button {
+  flex: 1;
+  height: 42px;
+  border: none;
+  border-radius: 13px;
+  background: var(--inset);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+  cursor: pointer;
+  transition: transform 0.12s ease;
+}
+.days-row button:active { transform: scale(0.92); }
+.days-row button.active {
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 3px 8px rgba(196, 84, 124, 0.3);
+}
+
+/* Ruhetage (Wochentags-Plan) in Karten & Grids */
+.habit-card.offday { opacity: 0.55; }
+.day-cell.offplan .dot,
+.m-cell.offplan {
+  background: transparent !important;
+  border: 1.5px dashed var(--track);
+  color: var(--faint);
+}
+
+/* ---------- Mood-Check-in ---------- */
+
+.mood-card {
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-soft);
+  padding: 14px 16px;
+  margin-bottom: 14px;
+}
+.mood-q {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+.mood-row { display: flex; gap: 8px; }
+.mood-row button {
+  flex: 1;
+  height: 46px;
+  border: none;
+  border-radius: 14px;
+  background: var(--inset);
+  font-size: 23px;
+  cursor: pointer;
+  filter: grayscale(0.6);
+  opacity: 0.75;
+  transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1), filter 0.15s ease;
+}
+.mood-row button:active { transform: scale(0.88); }
+.mood-row button.active {
+  background: var(--accent-soft);
+  filter: none;
+  opacity: 1;
+  transform: scale(1.08);
+  box-shadow: 0 3px 10px rgba(196, 84, 124, 0.2);
+}
+.mood-reaction {
+  margin-top: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  background: var(--inset);
+  border-radius: 12px;
+  padding: 9px 12px;
+}
+
+/* Mood in der Statistik */
+.day-cell.mood-cell { cursor: default; }
+.day-cell.mood-cell .dot { background: var(--inset); font-size: 18px; }
+.m-cell.mood-m { cursor: default; font-size: 13px; background: var(--inset); }
+.m-cell.mood-m.future { background: transparent; }
+
+/* ---------- Verzicht-Habits ---------- */
+
+.relapse-btn {
+  font-size: 13px !important;
+  color: var(--muted);
+  padding: 0 16px !important;
+}
+.relapse-btn.active {
+  background: #C0392B !important;
+  color: #fff;
+}
+
+.day-cell.relapse .dot,
+.m-cell.relapse {
+  background: #C0392B !important;
+  color: #fff;
+  font-weight: 800;
+}
+
+/* ---------- Jahres-Heatmap ---------- */
+
+.year-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 4px;
+}
+.year-grid {
+  display: grid;
+  grid-template-rows: repeat(7, 1fr);
+  grid-auto-flow: column;
+  gap: 2.5px;
+  width: max-content;
+}
+.yh-cell {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  background: var(--inset);
+}
+.yh-cell.void { background: transparent; }
+
+/* ---------- „Was ist neu"-Karte ---------- */
+
+.update-card {
+  background: linear-gradient(135deg, #F3EEFB, #FDF0F5);
+  border: 1.5px solid rgba(122, 99, 201, 0.18);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-soft);
+  padding: 16px 18px;
+  margin-bottom: 14px;
+  animation: rise 0.3s ease backwards;
+}
+.update-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.update-donkey .donkey { display: block; }
+.update-title {
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+.update-list {
+  list-style: none;
+  margin: 0 0 4px;
+}
+.update-list li {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--ink);
+  line-height: 1.5;
+  padding: 4px 0 4px 2px;
+}
+.update-dismiss {
+  margin-top: 8px;
+  border: none;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 999px;
+  padding: 9px 18px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+  cursor: pointer;
+  box-shadow: var(--shadow-soft);
+}
+.update-dismiss:active { transform: scale(0.95); }
+
+/* ---------- Mood im Hero (eingeklappt) ---------- */
+
+.hero { position: relative; }
+.hero-mood {
+  position: absolute;
+  bottom: 10px;
+  right: 12px;
+  width: 38px;
+  height: 38px;
+  border: none;
+  border-radius: 50%;
+  background: var(--inset);
+  font-size: 19px;
+  cursor: pointer;
+  box-shadow: var(--shadow-soft);
+  transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.hero-mood:active { transform: scale(0.88); }
+
+.mood-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.mood-head .mood-q { margin-bottom: 0; }
+.mood-collapse {
+  border: none;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 4px 6px;
+}
+
+/* Mood-Zellen in der Statistik sind jetzt antippbar */
+.day-cell.mood-cell { cursor: pointer; }
+.day-cell.mood-cell.future { cursor: default; }
+.m-cell.mood-m { cursor: pointer; }
+.m-cell.mood-m.future { cursor: default; }

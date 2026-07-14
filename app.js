@@ -8,6 +8,42 @@
 
 const STORAGE_KEY = 'emse-habits-v1';
 
+// App-Version für die einmalige „Was ist neu"-Karte.
+// Bei jedem Update: Version hochzählen + CHANGELOG-Eintrag ergänzen.
+const APP_VERSION = 17;
+const CHANGELOG = [
+  {
+    v: 17,
+    items: [
+      '🌱 Verzicht rückwirkend: Rückfälle lassen sich jetzt auf beliebigen vergangenen Tagen nachtragen — auch vor dem Anlegen. Deine Serie zählt dann ab dem letzten Rückfall.',
+      '💭 Das Stimmungs-Badge sitzt jetzt unten rechts in der Esel-Karte.',
+    ],
+  },
+  {
+    v: 16,
+    items: [
+      '💭 Stimmung wandert nach der Wahl als kleines Badge in die Esel-Karte — antippen zum Ändern.',
+      '🎯 Der Tagesring zählt nur noch echte To-dos: erledigte Wochenziele und Verzicht-Habits füllen ihn nicht mehr vor.',
+      '📊 Stimmung lässt sich jetzt auch rückblickend in der Statistik eintragen (Tag antippen) — Rückfälle wie gehabt.',
+    ],
+  },
+  {
+    v: 15,
+    items: [
+      '🎁 Diese Update-Hinweise! Nach jedem Update siehst du hier einmalig, was neu ist.',
+    ],
+  },
+  {
+    v: 14,
+    items: [
+      '📅 Wochentags-Pläne: Habits nur an bestimmten Tagen (z. B. Gym Mo/Mi/Fr) — Ruhetage brechen keine Serie.',
+      '💭 Mood-Check-in: Sag dem Esel, wie es dir geht — mit Stimmungs-Verlauf in der Statistik.',
+      '🌱 Verzicht-Habits: „X Tage ohne" — die Serie wächst von allein, nur Rückfälle werden geloggt.',
+      '🏆 Jahres-Heatmap & Rekorde: neuer Jahr-Tab in der Statistik mit deiner besten Serie aller Zeiten.',
+    ],
+  },
+];
+
 // Reihenfolge der Farben ist CVD-validiert (nicht umsortieren)
 const COLORS = {
   rose:   { bg: '#FADCE4', ink: '#C4547C' },
@@ -21,6 +57,15 @@ const COLORS = {
 const EMOJIS = ['✅', '📖', '🏃‍♀️', '💪', '🧘‍♀️', '💧', '🥗', '🍗', '😴', '🧹', '💊', '🎹', '✍️', '🌱', '📵', '🦷', '☀️', '💌'];
 
 const WEEKDAYS = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
+
+// Mood-Check-in: 5 Stufen, der Esel reagiert
+const MOODS = [
+  { v: 1, e: '😢', reaction: 'Oh nein… komm her, Ohrenkuscheln! 🫂 Morgen wird\'s leichter.' },
+  { v: 2, e: '😕', reaction: 'Halb so wild. Ein kleiner Habit hebt die Laune — versprochen! 🌱' },
+  { v: 3, e: '😐', reaction: 'Okay-Tage gehören dazu. Ich bin da! 🐴' },
+  { v: 4, e: '🙂', reaction: 'Schön zu hören! Weiter so! 💛' },
+  { v: 5, e: '🥰', reaction: 'Iiiaah, das freut mich riesig! ✨' },
+];
 
 // Sprüche vom Baby-Esel, je nach Tagesfortschritt
 const QUOTES = {
@@ -81,6 +126,8 @@ let dayOffset = 0;                // Heute-Ansicht: 0 = heute, -1 = gestern, …
 let editingId = null;             // Habit-ID im Sheet (null = neu)
 let sheetSel = { emoji: EMOJIS[0], color: 'rose', freq: 'daily', target: 3, kind: 'check', direction: 'min' };
 let logCtx = null;                // { habitId, date } fürs Wert-Sheet
+let moodCtx = null;               // ISO-Datum fürs Stimmungs-Sheet (Statistik)
+let moodExpanded = false;         // Mood-Karte trotz gesetzter Stimmung ausgeklappt
 let eventCtx = null;              // { habitId, date } fürs Ereignis-Sheet
 let detail = null;                // { id, mode, offset } fürs Detail-Sheet
 
@@ -95,7 +142,8 @@ function load() {
       }
     }
   } catch (e) { /* korrupte Daten → frisch starten */ }
-  return { version: 1, habits: [], logs: {}, pauses: {}, ui: {} };
+  // Frische Installation: nichts ist „neu" → aktuelle Version gilt als gesehen
+  return { version: 1, habits: [], logs: {}, pauses: {}, ui: { seenVersion: APP_VERSION }, moods: {} };
 }
 
 // Ältere Datenstände auf den aktuellen Stand heben
@@ -103,6 +151,10 @@ function migrate(data) {
   data.habits.forEach((h) => {
     if (!h.kind) h.kind = 'check';
     if (h.kind === 'number' && !h.direction) h.direction = 'min';
+    // Wochentags-Plan: bestehende tägliche Habits gelten an allen Tagen
+    if ((h.kind === 'check' || h.kind === 'number') && h.freq.type === 'daily' && !Array.isArray(h.days)) {
+      h.days = [0, 1, 2, 3, 4, 5, 6];
+    }
   });
   // Ereignis-Logs: früher Text-Arrays pro Tag, jetzt reine Zähler
   data.habits.filter((h) => h.kind === 'event').forEach((h) => {
@@ -114,6 +166,7 @@ function migrate(data) {
   });
   if (!data.pauses) data.pauses = {};
   if (!data.ui) data.ui = {};
+  if (!data.moods) data.moods = {};
 }
 
 function save() {
@@ -160,10 +213,23 @@ function goalReached(h, val) {
   return h.direction === 'max' ? val <= h.goal : val >= h.goal;
 }
 
-// „Zählt der Tag als geschafft?" — Zahlen-Habits: Tagesziel erreicht; Ereignis-Habits: nie ein „Ziel"
+// Startpunkt eines Verzicht-Habits: das Anlegedatum — oder ein früher
+// nachgetragener Rückfall (dann zählt die Zeit rückwirkend ab dort)
+function quitStart(h) {
+  const created = fromIso(h.createdAt);
+  const dates = Object.keys(state.logs[h.id] || {}).sort();
+  if (dates.length > 0 && fromIso(dates[0]) < created) return fromIso(dates[0]);
+  return created;
+}
+
+// „Zählt der Tag als geschafft?" — Zahlen-Habits: Tagesziel erreicht;
+// Verzicht-Habits: kein Rückfall geloggt; Ereignis-Habits: nie ein „Ziel"
 function doneOn(h, isoDate) {
   if (h.kind === 'number') return goalReached(h, rawVal(h.id, isoDate));
   if (h.kind === 'event') return false;
+  if (h.kind === 'quit') {
+    return fromIso(isoDate) >= quitStart(h) && !isDone(h.id, isoDate);
+  }
   return isDone(h.id, isoDate);
 }
 
@@ -215,13 +281,49 @@ function sumInRange(habitId, from, to) { // Wertesumme (Zahlen-Habits)
 
 function isPause(isoDate) { return !!state.pauses[isoDate]; }
 
-// Fällige Tage in einem Zeitraum (Pause-Tage zählen nicht)
-function dueDaysBetween(from, to) {
+// ---------- Wochentags-Pläne & Verzicht ----------
+
+function dowOf(isoDate) { return (fromIso(isoDate).getDay() + 6) % 7; } // Mo=0 … So=6
+
+// Ist der Habit an diesem Tag überhaupt dran? (Wochentags-Plan)
+function scheduledOn(h, isoDate) {
+  if (h.kind === 'event') return false;
+  if (h.kind === 'quit') return true;
+  if (h.freq.type !== 'daily') return true; // Wochen-/Monats-Habits haben Periodenziele
+  return !Array.isArray(h.days) || h.days.includes(dowOf(isoDate));
+}
+
+// Fällige Tage eines Habits: geplant UND kein Pause-Tag
+function habitDueDays(h, from, to) {
   let n = 0;
   for (let d = new Date(from); d <= to; d = addDays(d, 1)) {
-    if (!isPause(iso(d))) n++;
+    const i = iso(d);
+    if (!isPause(i) && scheduledOn(h, i)) n++;
   }
   return n;
+}
+
+// Zählt der Habit an diesem Tag zur Tageserfüllung? (Hero, Konfetti)
+function relevantOn(h, isoDate) {
+  if (h.kind === 'event') return false;
+  if (h.kind === 'quit') return true;
+  if (h.freq.type === 'daily') return scheduledOn(h, isoDate);
+  return true;
+}
+
+// Verzicht: Tage seit dem letzten Rückfall (auch rückwirkend nachgetragene),
+// ohne Rückfall seit dem Startpunkt (Anlage bzw. früherer Rückfall)
+function quitStreak(h) {
+  const t = today();
+  const log = state.logs[h.id] || {};
+  const relapses = Object.keys(log)
+    .filter((d) => log[d] && fromIso(d) <= t)
+    .sort();
+  if (relapses.length === 0) {
+    return Math.round((t - quitStart(h)) / 86400000) + 1; // Starttag zählt mit
+  }
+  const last = fromIso(relapses[relapses.length - 1]);
+  return Math.round((t - last) / 86400000); // Rückfalltag selbst zählt nicht, heute = 0
 }
 
 // „Zählt der Tag für diesen Habit als erfüllt?" — der Unterschied zu doneOn:
@@ -229,6 +331,8 @@ function dueDaysBetween(from, to) {
 // erreicht ist (Gym 3×/Woche am Donnerstag = ✓, wenn Mo–Mi gemacht).
 function dayFulfilled(h, isoDate) {
   if (h.kind === 'event') return false;
+  if (h.kind === 'quit') return doneOn(h, isoDate); // kein Rückfall = geschafft
+  if (h.freq.type === 'daily' && !scheduledOn(h, isoDate)) return true; // heute nicht dran
   if (doneOn(h, isoDate)) return true;
   const d = fromIso(isoDate);
   if (h.freq.type === 'weekly') {
@@ -242,25 +346,54 @@ function dayFulfilled(h, isoDate) {
   return false;
 }
 
+// Ist das Periodenziel (Woche/Monat) eines Habits am Stichtag schon erreicht?
+function periodGoalMet(h, isoDate) {
+  const d = fromIso(isoDate);
+  if (h.freq.type === 'weekly') {
+    const wk = monday(d);
+    return countInRange(h.id, wk, addDays(wk, 6)) >= h.freq.target;
+  }
+  if (h.freq.type === 'monthly') {
+    const ms = monthStart(d);
+    return countInRange(h.id, ms, new Date(ms.getFullYear(), ms.getMonth() + 1, 0)) >= h.freq.target;
+  }
+  return false;
+}
+
+// Steht der Habit an diesem Tag als To-do im Tagesring?
+// Nicht dabei: Events (reine Logs), Verzicht (nichts zu tun), Ruhetage,
+// und Wochen-/Monats-Habits, deren Periodenziel schon steht (außer heute geloggt —
+// dann bleibt der Beitrag als ✓ sichtbar).
+function actionableOn(h, isoDate) {
+  if (h.kind === 'event' || h.kind === 'quit') return false;
+  if (h.freq.type === 'daily') return scheduledOn(h, isoDate);
+  if (doneOn(h, isoDate)) return true;
+  return !periodGoalMet(h, isoDate);
+}
+
 function allDoneToday() {
   const t = iso(today());
-  // Ereignis-Habits sind reine Logs ohne Ziel — sie zählen nicht zur Tageserfüllung
-  const trackable = state.habits.filter((h) => h.kind !== 'event');
-  return trackable.length > 0 && trackable.every((h) => dayFulfilled(h, t));
+  const todos = state.habits.filter((h) => actionableOn(h, t));
+  return todos.length > 0 && todos.every((h) => doneOn(h, t));
 }
 
 // ---------- Streaks ----------
 
 function streak(habit) {
   const t = today();
+  if (habit.kind === 'quit') {
+    const n = quitStreak(habit);
+    return { n, unit: n === 1 ? 'Tag' : 'Tage' };
+  }
   if (habit.freq.type === 'daily') {
-    // Pause-Tage brechen die Serie nicht (zählen aber nur, wenn trotzdem erledigt)
+    // Pause-Tage und ungeplante Wochentage brechen die Serie nicht
+    // (zählen aber nur mit, wenn trotzdem erledigt)
     let n = 0;
     let d = doneOn(habit, iso(t)) ? t : addDays(t, -1);
     for (let guard = 0; guard < 3700; guard++) {
       const dIso = iso(d);
       if (doneOn(habit, dIso)) n++;
-      else if (!isPause(dIso)) break;
+      else if (!isPause(dIso) && scheduledOn(habit, dIso)) break;
       d = addDays(d, -1);
     }
     return { n, unit: n === 1 ? 'Tag' : 'Tage' };
@@ -625,9 +758,11 @@ function renderToday() {
   // Hero: Baby-Esel mit Stimmung + Spruch + Fortschritt des betrachteten Tags.
   // Wochen-/Monats-Habits zählen als erfüllt, sobald ihr Periodenziel steht;
   // Ereignis-Habits sind reine Logs und zählen gar nicht mit.
-  const trackable = state.habits.filter((h) => h.kind !== 'event');
-  const doneCount = trackable.filter((h) => dayFulfilled(h, t)).length;
-  const total = trackable.length;
+  // Nur echte To-dos des Tages zählen: erledigte Wochenziele und Verzicht-Habits
+  // sind kein „vorausgefüllter" Fortschritt mehr
+  const todos = state.habits.filter((h) => actionableOn(h, t));
+  const doneCount = todos.filter((h) => doneOn(h, t)).length;
+  const total = todos.length;
   const pct = total > 0 ? Math.round((doneCount / total) * 100) : 0;
   const mood = moodFor(total > 0 ? pct : 1); // nur Ereignis-Habits → neutral-hoffnungsvoll
 
@@ -679,6 +814,49 @@ function renderToday() {
     }, 1800);
   });
 
+  // Mood-Check-in: morgens einmal wählen, danach klappt die Karte in den Hero
+  // (kleines Emoji-Badge oben rechts) — antippen klappt sie zum Ändern wieder aus
+  const savedMood = state.moods[t];
+  if (savedMood && !moodExpanded) {
+    const badge = document.createElement('button');
+    badge.className = 'hero-mood';
+    badge.setAttribute('aria-label', 'Stimmung ändern');
+    badge.textContent = MOODS[savedMood - 1].e;
+    badge.addEventListener('click', () => { moodExpanded = true; render(); });
+    hero.appendChild(badge);
+  } else {
+    const moodCard = document.createElement('div');
+    moodCard.className = 'mood-card';
+    moodCard.innerHTML = `
+      <div class="mood-head">
+        <div class="mood-q">${isToday ? 'Wie geht\'s dir heute?' : 'Wie ging\'s dir an dem Tag?'}</div>
+        ${savedMood ? '<button class="mood-collapse" aria-label="Einklappen">Einklappen ▴</button>' : ''}
+      </div>
+      <div class="mood-row">${MOODS.map((m) =>
+        `<button data-mood="${m.v}" class="${savedMood === m.v ? 'active' : ''}">${m.e}</button>`).join('')}</div>
+      ${savedMood ? `<div class="mood-reaction">${MOODS[savedMood - 1].reaction}</div>` : ''}`;
+    moodCard.querySelectorAll('.mood-row button').forEach((b) =>
+      b.addEventListener('click', () => {
+        const v = Number(b.dataset.mood);
+        if (state.moods[t] === v) delete state.moods[t]; // nochmal tippen = zurücknehmen
+        else state.moods[t] = v;
+        save();
+        moodExpanded = false; // nach der Wahl einklappen
+        render();
+      }));
+    moodCard.querySelector('.mood-collapse')?.addEventListener('click', () => {
+      moodExpanded = false;
+      render();
+    });
+    main.appendChild(moodCard);
+  }
+
+  // Einmalige „Was ist neu"-Karte nach einem Update
+  if (isToday) {
+    const upd = buildUpdateCard();
+    if (upd) main.appendChild(upd);
+  }
+
   // Wochenrückblick (sonntags für die laufende, montags für die letzte Woche)
   if (isToday) {
     const review = buildReviewCard();
@@ -718,9 +896,20 @@ function renderToday() {
       // Kein +: geloggt wird übers Plus-Formular; Badge zeigt den Zähler,
       // antippen öffnet das Anpassen-Sheet für diesen Tag
       action = `<button class="value-btn event-badge" aria-label="Zähler anpassen">${cntDay}<span>×</span></button>`;
+    } else if (h.kind === 'quit') {
+      const relapse = isDone(h.id, t);
+      sub = relapse
+        ? 'Rückfall 😔 — morgen zählt wieder!'
+        : `🌱 <b>${st.n}</b> ${st.unit} ohne`;
+      action = `<button class="value-btn relapse-btn ${relapse ? 'active' : ''}"
+        aria-label="Rückfall eintragen">${relapse ? '✕ Rückfall' : 'Rückfall?'}</button>`;
     } else if (h.freq.type === 'daily') {
-      sub = st.n > 0 ? `🔥 <b>${st.n}</b> ${st.unit} in Folge`
-        : (isToday ? 'Heute noch offen' : 'An dem Tag offen');
+      if (!scheduledOn(h, t)) {
+        sub = `Ruhetag — ${isToday ? 'heute' : 'an dem Tag'} nicht dran 😌`;
+      } else {
+        sub = st.n > 0 ? `🔥 <b>${st.n}</b> ${st.unit} in Folge`
+          : (isToday ? 'Heute noch offen' : 'An dem Tag offen');
+      }
     } else {
       // Wochen-/Monats-Habit: Fortschritt in der Periode des betrachteten Tags
       let cnt, label2;
@@ -748,8 +937,11 @@ function renderToday() {
         aria-label="${done ? 'Erledigt' : 'Als erledigt markieren'}">✓</button>`;
     }
 
+    const offday = h.kind !== 'event' && h.kind !== 'quit' &&
+      h.freq.type === 'daily' && !scheduledOn(h, t);
+
     const card = document.createElement('div');
-    card.className = 'habit-card';
+    card.className = 'habit-card' + (offday ? ' offday' : '');
     card.style.background = `linear-gradient(135deg, ${c.bg} 0%, ${hexA(c.bg, 0.55)} 100%)`;
     card.innerHTML = `
       <div class="habit-emoji">${h.emoji}</div>
@@ -765,6 +957,18 @@ function renderToday() {
       card.querySelector('.value-btn').addEventListener('click', () => openLog(h.id, t));
     } else if (h.kind === 'event') {
       card.querySelector('.value-btn').addEventListener('click', () => openEventLog(h.id, t));
+    } else if (h.kind === 'quit') {
+      card.querySelector('.relapse-btn').addEventListener('click', () => {
+        const relapse = isDone(h.id, t);
+        if (!relapse) {
+          const days = streak(h).n;
+          if (!confirm(`Rückfall ${isToday ? 'heute' : 'an dem Tag'} eintragen?` +
+            (days > 1 ? ` Deine Serie (${days} Tage) beginnt dann neu.` : '') +
+            ' Kein Drama — morgen zählt wieder! 🌱')) return;
+        }
+        toggle(h.id, t);
+        render();
+      });
     } else {
       card.querySelector('.check-btn').addEventListener('click', (e) => {
         const wasAll = allDoneToday();
@@ -775,6 +979,61 @@ function renderToday() {
       });
     }
     main.appendChild(card);
+  });
+}
+
+// ---------- „Was ist neu"-Karte (einmalig pro Update) ----------
+
+function buildUpdateCard() {
+  const seen = state.ui.seenVersion || 0;
+  const news = CHANGELOG.filter((e) => e.v > seen);
+  if (news.length === 0) return null;
+
+  const card = document.createElement('div');
+  card.className = 'update-card';
+  card.innerHTML = `
+    <div class="update-head">
+      <span class="update-donkey">${donkeySvg('party', 52)}</span>
+      <div class="update-title">Iiiaah — es gibt Neuigkeiten!</div>
+    </div>
+    <ul class="update-list">
+      ${news.flatMap((e) => e.items).map((i) => `<li>${i}</li>`).join('')}
+    </ul>
+    <button class="update-dismiss">Alles klar ✨</button>`;
+  card.querySelector('.update-dismiss').addEventListener('click', () => {
+    state.ui.seenVersion = APP_VERSION;
+    save();
+    render();
+  });
+  return card;
+}
+
+// ---------- Stimmungs-Sheet (rückblickend über die Statistik) ----------
+
+function openMoodSheet(isoDate) {
+  moodCtx = isoDate;
+  $('#mood-sub').textContent = fromIso(isoDate).toLocaleDateString('de-DE', {
+    weekday: 'long', day: 'numeric', month: 'long',
+  });
+  renderMoodSheetRow();
+  openSheet($('#sheet-mood'));
+}
+
+function renderMoodSheetRow() {
+  const row = $('#mood-sheet-row');
+  row.innerHTML = '';
+  MOODS.forEach((m) => {
+    const b = document.createElement('button');
+    b.textContent = m.e;
+    b.classList.toggle('active', state.moods[moodCtx] === m.v);
+    b.addEventListener('click', () => {
+      if (state.moods[moodCtx] === m.v) delete state.moods[moodCtx];
+      else state.moods[moodCtx] = m.v;
+      save();
+      renderMoodSheetRow();
+      render();
+    });
+    row.appendChild(b);
   });
 }
 
@@ -793,9 +1052,9 @@ function weekScore(wk) {
     const upto = t < wkEnd ? t : wkEnd;
     if (upto < from) return;
     if (h.freq.type === 'daily') {
-      const d = dueDaysBetween(from, upto);
+      const d = habitDueDays(h, from, upto); // geplante Tage minus Pausen
       due += d;
-      done += Math.min(countDone(h, from, upto), d); // am Pause-Tag Erledigtes nicht überzählen
+      done += Math.min(countDone(h, from, upto), d); // Bonus-Tage nicht überzählen
     } else if (h.freq.type === 'weekly') {
       due += h.freq.target;
       done += Math.min(countInRange(h.id, from, upto), h.freq.target);
@@ -829,8 +1088,8 @@ function buildReviewCard() {
     const from = fromIso(h.createdAt) > wk ? fromIso(h.createdAt) : wk;
     let ratio;
     if (h.freq.type === 'daily') {
-      const due = dueDaysBetween(from, upto);
-      ratio = due > 0 ? countDone(h, from, upto) / due : 0;
+      const due = habitDueDays(h, from, upto);
+      ratio = due > 0 ? Math.min(1, countDone(h, from, upto) / due) : 0;
     } else if (h.freq.type === 'weekly') {
       ratio = Math.min(1, countInRange(h.id, from, upto) / h.freq.target);
     } else return;
@@ -877,13 +1136,45 @@ function renderStats() {
   seg.className = 'seg';
   seg.innerHTML = `
     <button data-mode="week" class="${statsMode === 'week' ? 'active' : ''}">Woche</button>
-    <button data-mode="month" class="${statsMode === 'month' ? 'active' : ''}">Monat</button>`;
+    <button data-mode="month" class="${statsMode === 'month' ? 'active' : ''}">Monat</button>
+    <button data-mode="year" class="${statsMode === 'year' ? 'active' : ''}">Jahr</button>`;
   seg.querySelectorAll('button').forEach((b) =>
     b.addEventListener('click', () => { statsMode = b.dataset.mode; statsOffset = 0; render(); }));
   main.appendChild(seg);
 
   if (statsMode === 'week') renderWeekStats();
-  else renderMonthStats();
+  else if (statsMode === 'month') renderMonthStats();
+  else renderYearStats();
+}
+
+// Stimmungs-Zeile für die Wochen-Statistik (nur wenn überhaupt Moods erfasst sind)
+function moodWeekCard(wk, t) {
+  if (Object.keys(state.moods).length === 0) return null;
+  const card = document.createElement('div');
+  card.className = 'stat-card';
+  const vals = [];
+  for (let i = 0; i < 7; i++) vals.push(state.moods[iso(addDays(wk, i))]);
+  const set = vals.filter(Boolean);
+  const avg = set.length ? MOODS[Math.round(set.reduce((a, b) => a + b, 0) / set.length) - 1].e : '';
+  card.innerHTML = `<div class="stat-head">
+      <div class="habit-emoji">💭</div>
+      <div class="name">Stimmung</div>
+      <div class="val">${avg ? `Ø ${avg}` : ''}</div>
+    </div><div class="week-row"></div>`;
+  const row = card.querySelector('.week-row');
+  for (let i = 0; i < 7; i++) {
+    const d = addDays(wk, i);
+    const dIso = iso(d);
+    const v = vals[i];
+    const future = d > t;
+    const cell = document.createElement('button');
+    cell.className = 'day-cell mood-cell' + (dIso === iso(t) ? ' today' : '') + (future ? ' future' : '');
+    cell.title = d.toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' });
+    cell.innerHTML = `<span class="dot">${v ? MOODS[v - 1].e : ''}</span><span class="lbl">${WEEKDAYS[i]}</span>`;
+    if (!future) cell.addEventListener('click', () => openMoodSheet(dIso));
+    row.appendChild(cell);
+  }
+  return card;
 }
 
 function periodNav(label, onPrev, onNext, canNext) {
@@ -933,6 +1224,9 @@ function renderWeekStats() {
   main.appendChild(summaryTile(score.pct,
     score.due > 0 ? `<b>${score.done}</b> von <b>${score.due}</b> fälligen Einheiten geschafft` : 'Keine fälligen Habits in dieser Woche'));
 
+  const moodCard = moodWeekCard(wk, t);
+  if (moodCard) main.appendChild(moodCard);
+
   state.habits.forEach((h) => {
     const c = COLORS[h.color] || COLORS.rose;
     if (fromIso(h.createdAt) > wkEnd) return;
@@ -940,7 +1234,31 @@ function renderWeekStats() {
     const card = document.createElement('div');
     card.className = 'stat-card';
 
-    if (h.kind === 'number') {
+    if (h.kind === 'quit') {
+      // Verzicht: sauberer Tag = ✓, Rückfall = ✕; antippen korrigiert
+      const st = quitStreak(h);
+      card.innerHTML = statHead(h, `🌱 <b>${st}</b> ${st === 1 ? 'Tag' : 'Tage'} ohne`, false) +
+        '<div class="week-row"></div>';
+      const row = card.querySelector('.week-row');
+      const start = quitStart(h);
+      for (let i = 0; i < 7; i++) {
+        const d = addDays(wk, i);
+        const dIso = iso(d);
+        const future = d > t;
+        const before = d < start; // vor dem Start: kein ✓, aber Rückfall nachtragbar
+        const relapse = isDone(h.id, dIso);
+        const cell = document.createElement('button');
+        cell.className = 'day-cell' + (relapse ? ' relapse' : (!future && !before ? ' done' : '')) +
+          (future ? ' future' : '') + (before && !relapse ? ' offplan' : '') + (dIso === iso(t) ? ' today' : '');
+        cell.title = d.toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' }) +
+          (relapse ? ' (Rückfall)' : before ? ' (Rückfall nachtragen)' : '');
+        cell.innerHTML = `
+          <span class="dot" style="${relapse ? '' : (!future && !before ? `background:${hexA(c.ink, 0.65)}` : '')}">${relapse ? '✕' : (!future && !before ? '✓' : '')}</span>
+          <span class="lbl">${WEEKDAYS[i]}</span>`;
+        if (!future) cell.addEventListener('click', () => { toggle(h.id, dIso); render(); });
+        row.appendChild(cell);
+      }
+    } else if (h.kind === 'number') {
       // Mini-Balkenchart der 7 Tage
       const vals = [];
       for (let i = 0; i < 7; i++) vals.push(rawVal(h.id, iso(addDays(wk, i))));
@@ -971,7 +1289,7 @@ function renderWeekStats() {
     } else {
       const cnt = countInRange(h.id, wk, wkEnd);
       let val;
-      if (h.freq.type === 'daily') val = `<b>${cnt}</b>/7 Tage`;
+      if (h.freq.type === 'daily') val = `<b>${cnt}</b>/${habitDueDays(h, wk, wkEnd)} Tage`;
       else if (h.freq.type === 'weekly') val = `<b>${cnt}</b>/${h.freq.target} Ziel`;
       else val = `<b>${cnt}</b>× diese Woche`;
 
@@ -983,13 +1301,14 @@ function renderWeekStats() {
         const dDone = isDone(h.id, dIso);
         const future = d > t;
         const paused = isPause(dIso) && !dDone;
+        const off = !scheduledOn(h, dIso) && !dDone; // Ruhetag laut Wochentags-Plan
         const cell = document.createElement('button');
         cell.className = 'day-cell' + (dDone ? ' done' : '') + (future ? ' future' : '') +
-          (paused ? ' pause' : '') + (dIso === iso(t) ? ' today' : '');
+          (paused ? ' pause' : '') + (off ? ' offplan' : '') + (dIso === iso(t) ? ' today' : '');
         cell.title = d.toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' }) +
-          (paused ? ' (Pause)' : '');
+          (paused ? ' (Pause)' : off ? ' (Ruhetag)' : '');
         cell.innerHTML = `
-          <span class="dot" style="${dDone ? `background:${c.ink}` : ''}">${dDone ? '✓' : paused ? '⏸' : ''}</span>
+          <span class="dot" style="${dDone ? `background:${c.ink}` : ''}">${dDone ? '✓' : paused ? '⏸' : off ? '·' : ''}</span>
           <span class="lbl">${WEEKDAYS[i]}</span>`;
         if (!future) cell.addEventListener('click', () => { toggle(h.id, dIso); render(); });
         row.appendChild(cell);
@@ -1028,7 +1347,7 @@ function renderMonthStats() {
     const upto = isCurrent && t < mEnd ? t : mEnd;
     if (upto < from) return;
     if (h.freq.type === 'daily') {
-      const d = dueDaysBetween(from, upto);
+      const d = habitDueDays(h, from, upto);
       due += d;
       done += Math.min(countDone(h, from, upto), d);
     } else if (h.freq.type === 'weekly') {
@@ -1046,21 +1365,60 @@ function renderMonthStats() {
   main.appendChild(summaryTile(pct,
     due > 0 ? `<b>${done}</b> von <b>${due}</b> fälligen Einheiten geschafft` : 'Keine fälligen Habits in diesem Monat'));
 
+  // Stimmungs-Kalender (nur wenn Moods erfasst wurden)
+  if (Object.keys(state.moods).length > 0) {
+    const mc = document.createElement('div');
+    mc.className = 'stat-card';
+    mc.innerHTML = `<div class="stat-head">
+        <div class="habit-emoji">💭</div><div class="name">Stimmung</div><div class="val"></div>
+      </div><div class="month-grid"></div>`;
+    const grid = mc.querySelector('.month-grid');
+    WEEKDAYS.forEach((w) => {
+      const el = document.createElement('div');
+      el.className = 'wd';
+      el.textContent = w;
+      grid.appendChild(el);
+    });
+    const lead = (ms.getDay() + 6) % 7;
+    for (let i = 0; i < lead; i++) {
+      const el = document.createElement('div');
+      el.className = 'm-cell blank';
+      grid.appendChild(el);
+    }
+    for (let day = 1; day <= nDays; day++) {
+      const d = new Date(ms.getFullYear(), ms.getMonth(), day);
+      const dIso = iso(d);
+      const v = state.moods[dIso];
+      const future = d > t;
+      const el = document.createElement('button');
+      el.className = 'm-cell mood-m' + (future ? ' future' : '') + (dIso === iso(t) ? ' today' : '');
+      el.textContent = v ? MOODS[v - 1].e : day;
+      el.title = d.toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' });
+      if (!future) el.addEventListener('click', () => openMoodSheet(dIso));
+      grid.appendChild(el);
+    }
+    main.appendChild(mc);
+  }
+
   state.habits.forEach((h) => {
     const c = COLORS[h.color] || COLORS.rose;
     if (fromIso(h.createdAt) > mEnd) return;
 
     const isNum = h.kind === 'number';
     const isEvent = h.kind === 'event';
+    const isQuit = h.kind === 'quit';
     let val;
     if (isNum) {
       const sum = sumInRange(h.id, ms, mEnd);
       val = `<b>${fmtNum(sum)}</b> ${esc(h.unit)} gesamt`;
     } else if (isEvent) {
       val = `<b>${sumInRange(h.id, ms, mEnd)}</b>× diesen Monat`;
+    } else if (isQuit) {
+      const st = quitStreak(h);
+      val = `🌱 <b>${st}</b> ${st === 1 ? 'Tag' : 'Tage'} ohne`;
     } else {
       const cnt = countInRange(h.id, ms, mEnd);
-      if (h.freq.type === 'daily') val = `<b>${cnt}</b>/${nDays} Tage`;
+      if (h.freq.type === 'daily') val = `<b>${cnt}</b>/${habitDueDays(h, ms, mEnd)} Tage`;
       else if (h.freq.type === 'monthly') val = `<b>${cnt}</b>/${h.freq.target} Ziel`;
       else val = `<b>${cnt}</b>× diesen Monat`;
     }
@@ -1110,13 +1468,24 @@ function renderMonthStats() {
         if (n > 0) { cell.style.background = c.ink; cell.style.color = '#fff'; cell.style.fontWeight = '700'; }
         cell.textContent = n > 0 ? n : day;
         if (!future) cell.addEventListener('click', () => openEventLog(h.id, dIso));
+      } else if (isQuit) {
+        const relapse = isDone(h.id, dIso);
+        const before = d < quitStart(h); // vor dem Start: kein ✓, aber nachtragbar
+        cell.className = 'm-cell' + (relapse ? ' relapse' : (!future && !before ? ' done' : '')) +
+          (future ? ' future' : '') + (before && !relapse ? ' offplan' : '') + (dIso === iso(t) ? ' today' : '');
+        if (relapse) cell.title += ' (Rückfall)';
+        else if (before) cell.title += ' (Rückfall nachtragen)';
+        cell.style.background = relapse || future || before ? '' : hexA(c.ink, 0.65);
+        cell.textContent = relapse ? '✕' : (!future && !before ? '✓' : day);
+        if (!future) cell.addEventListener('click', () => { toggle(h.id, dIso); render(); });
       } else {
         const dDone = isDone(h.id, dIso);
         const paused = isPause(dIso) && !dDone;
+        const off = !scheduledOn(h, dIso) && !dDone;
         cell.className = 'm-cell' + (dDone ? ' done' : '') + (future ? ' future' : '') +
-          (paused ? ' pause' : '') + (dIso === iso(t) ? ' today' : '');
+          (paused ? ' pause' : '') + (off ? ' offplan' : '') + (dIso === iso(t) ? ' today' : '');
         cell.style.background = dDone ? c.ink : '';
-        cell.textContent = dDone ? '✓' : paused ? '⏸' : day;
+        cell.textContent = dDone ? '✓' : paused ? '⏸' : off ? '·' : day;
         if (!future) cell.addEventListener('click', () => { toggle(h.id, dIso); render(); });
       }
       grid.appendChild(cell);
@@ -1129,22 +1498,162 @@ function renderMonthStats() {
   });
 }
 
+// --- Jahr ---
+
+// Längste Serie aller Zeiten (Rekord), in der Einheit des Habits
+function bestStreakEver(h) {
+  const t = today();
+  const created = fromIso(h.createdAt);
+  if (h.freq.type === 'weekly' && h.kind === 'check') {
+    let best = 0, run = 0;
+    for (let wk = monday(created); wk <= t; wk = addDays(wk, 7)) {
+      if (countInRange(h.id, wk, addDays(wk, 6)) >= h.freq.target) { run++; best = Math.max(best, run); }
+      else run = 0;
+    }
+    return { n: best, unit: best === 1 ? 'Woche' : 'Wochen' };
+  }
+  if (h.freq.type === 'monthly' && h.kind === 'check') {
+    let best = 0, run = 0;
+    for (let ms = monthStart(created); ms <= t; ms = new Date(ms.getFullYear(), ms.getMonth() + 1, 1)) {
+      if (countInRange(h.id, ms, new Date(ms.getFullYear(), ms.getMonth() + 1, 0)) >= h.freq.target) { run++; best = Math.max(best, run); }
+      else run = 0;
+    }
+    return { n: best, unit: best === 1 ? 'Monat' : 'Monate' };
+  }
+  // täglich (check/number/quit): Pausen & Ruhetage überspringen, nicht brechen
+  let best = 0, run = 0;
+  const scanFrom = h.kind === 'quit' ? quitStart(h) : created;
+  for (let d = new Date(scanFrom); d <= t; d = addDays(d, 1)) {
+    const i = iso(d);
+    if (doneOn(h, i)) run++;
+    else if (isPause(i) || !scheduledOn(h, i)) { /* Serie läuft weiter */ }
+    else run = 0;
+    best = Math.max(best, run);
+  }
+  return { n: best, unit: best === 1 ? 'Tag' : 'Tage' };
+}
+
+function renderYearStats() {
+  const t = today();
+  const y = t.getFullYear() + statsOffset;
+  const from = new Date(y, 0, 1);
+  const to = new Date(y, 11, 31);
+  const isCurrent = statsOffset === 0;
+
+  main.appendChild(periodNav(String(y),
+    () => { statsOffset--; render(); },
+    () => { if (statsOffset < 0) { statsOffset++; render(); } },
+    !isCurrent));
+
+  // Jahres-Gesamtquote
+  let done = 0, due = 0;
+  state.habits.forEach((h) => {
+    if (h.kind === 'event') return;
+    const created = fromIso(h.createdAt);
+    if (created > to) return;
+    const f = created > from ? created : from;
+    const upto = isCurrent && t < to ? t : to;
+    if (upto < f) return;
+    if (h.freq.type === 'daily') {
+      const d = habitDueDays(h, f, upto);
+      due += d;
+      done += Math.min(countDone(h, f, upto), d);
+    } else if (h.freq.type === 'weekly') {
+      const weeks = Math.max(1, Math.ceil(((upto - f) / 86400000 + 1) / 7));
+      due += weeks * h.freq.target;
+      done += Math.min(countInRange(h.id, f, upto), weeks * h.freq.target);
+    } else {
+      const months = (upto.getFullYear() - f.getFullYear()) * 12 + (upto.getMonth() - f.getMonth()) + 1;
+      due += months * h.freq.target;
+      done += Math.min(countInRange(h.id, f, upto), months * h.freq.target);
+    }
+  });
+  const pct = due > 0 ? Math.round((done / due) * 100) : null;
+  main.appendChild(summaryTile(pct,
+    due > 0 ? `<b>${done}</b> von <b>${due}</b> fälligen Einheiten in ${y} geschafft` : `Noch keine fälligen Habits in ${y}`));
+
+  state.habits.forEach((h) => {
+    const c = COLORS[h.color] || COLORS.rose;
+    const created = fromIso(h.createdAt);
+    if (created > to) return;
+
+    // Kopfzeile: Jahresbilanz + Rekord-Serie
+    let val;
+    const rec = bestStreakEver(h);
+    if (h.kind === 'number') {
+      val = `<b>${fmtNum(sumInRange(h.id, from, to))}</b> ${esc(h.unit)} · Rekord ${rec.n} ${rec.unit}`;
+    } else if (h.kind === 'event') {
+      val = `<b>${sumInRange(h.id, from, to)}</b>× in ${y}`;
+    } else if (h.kind === 'quit') {
+      val = `🏆 Rekord: <b>${rec.n}</b> ${rec.unit} ohne`;
+    } else {
+      val = `<b>${countInRange(h.id, from, to)}</b>× · Rekord ${rec.n} ${rec.unit}`;
+    }
+
+    const card = document.createElement('div');
+    card.className = 'stat-card';
+    card.innerHTML = statHead(h, val, false) + '<div class="year-scroll"><div class="year-grid"></div></div>';
+    const grid = card.querySelector('.year-grid');
+
+    // GitHub-Style: Spalten = Wochen, Zeilen = Mo–So
+    const start = monday(from);
+    const weeks = Math.ceil((addDays(to, 1) - start) / 86400000 / 7);
+    const evtMax = h.kind === 'event'
+      ? Math.max(1, ...Object.values(state.logs[h.id] || {})) : 1;
+    // Verzicht: rückwirkend nachgetragene Rückfälle verschieben den Start nach vorn
+    const habitStart = h.kind === 'quit' ? quitStart(h) : created;
+
+    for (let w = 0; w < weeks; w++) {
+      for (let r = 0; r < 7; r++) {
+        const d = addDays(start, w * 7 + r);
+        const dIso = iso(d);
+        const cell = document.createElement('div');
+        cell.className = 'yh-cell';
+        if (d < from || d > to || d > t || d < habitStart) {
+          cell.classList.add('void');
+        } else {
+          cell.title = d.toLocaleDateString('de-DE', { day: 'numeric', month: 'short' });
+          let bg = '';
+          if (h.kind === 'quit') {
+            bg = isDone(h.id, dIso) ? '#C0392B' : hexA(c.ink, 0.6);
+          } else if (h.kind === 'number') {
+            const v = rawVal(h.id, dIso);
+            if (v > 0) bg = hexA(c.ink, 0.25 + 0.75 * Math.min(1, v / h.goal));
+          } else if (h.kind === 'event') {
+            const v = rawVal(h.id, dIso);
+            if (v > 0) bg = hexA(c.ink, 0.35 + 0.65 * Math.min(1, v / evtMax));
+          } else {
+            if (isDone(h.id, dIso)) bg = c.ink;
+          }
+          if (bg) cell.style.background = bg;
+        }
+        grid.appendChild(cell);
+      }
+    }
+    main.appendChild(card);
+  });
+}
+
 // ---------- Balkenchart für Zahlen-Habits ----------
 
 // vals: Werte pro Tag ab `from`; mode 'week' (7 Balken, Labels) | 'month' (viele Balken)
 function barChart(vals, h, c, from, t, mode) {
-  const maxV = Math.max(h.goal, ...vals, 1);
-  const goalPct = (h.goal / maxV) * 100;
   const maxVal = Math.max(...vals);
+  // 18 % Luft nach oben: die Ziellinie klebt so nie am oberen Rand,
+  // selbst wenn das Ziel der höchste Wert im Chart ist
+  const chartMax = Math.max(h.goal, maxVal, 1) * 1.18;
+  const goalPct = (h.goal / chartMax) * 100;
+  const isMax = h.direction === 'max';
 
   let bars = '';
   for (let i = 0; i < vals.length; i++) {
     const d = addDays(from, i);
     const future = d > t;
     const v = vals[i];
-    const hPct = (v / maxV) * 100;
-    const reached = v >= h.goal;
-    // Ein Farbton, zwei Stufen: Ziel erreicht = voll, sonst hell (sequential)
+    const hPct = (v / chartMax) * 100;
+    // „Mindestens": voll ab Ziel · „Höchstens": voll, solange unter der Grenze
+    const reached = v > 0 && (isMax ? v <= h.goal : v >= h.goal);
+    // Ein Farbton, zwei Stufen: geschafft = voll, sonst hell (sequential)
     const fill = reached ? c.ink : hexA(c.ink, 0.35);
     // Selektive Labels: Woche = alle Werte > 0; Monat = nur Bestwert
     const showLbl = v > 0 && (mode === 'week' || v === maxVal);
@@ -1168,7 +1677,7 @@ function barChart(vals, h, c, from, t, mode) {
 
   return `<div class="chart ${mode}">
       <div class="goal-line" style="bottom:${goalPct}%">
-        <span class="goal-tag">Ziel ${fmtNum(h.goal)}</span>
+        <span class="goal-tag">${isMax ? 'Max.' : 'Ziel'} ${fmtNum(h.goal)}</span>
       </div>
       ${bars}
     </div>
@@ -1398,8 +1907,8 @@ function openHabitSheet(id) {
   $('#kind-block').classList.toggle('hidden', !!h);
 
   sheetSel = h
-    ? { emoji: h.emoji, color: h.color, freq: h.freq.type, target: h.freq.target, kind: h.kind || 'check', direction: h.direction || 'min' }
-    : { emoji: EMOJIS[0], color: 'rose', freq: 'daily', target: 3, kind: 'check', direction: 'min' };
+    ? { emoji: h.emoji, color: h.color, freq: h.freq.type, target: h.freq.target, kind: h.kind || 'check', direction: h.direction || 'min', days: Array.isArray(h.days) ? [...h.days] : [0, 1, 2, 3, 4, 5, 6] }
+    : { emoji: EMOJIS[0], color: 'rose', freq: 'daily', target: 3, kind: 'check', direction: 'min', days: [0, 1, 2, 3, 4, 5, 6] };
 
   renderSheetControls();
   openSheet($('#sheet-habit'));
@@ -1412,13 +1921,37 @@ function renderSheetControls() {
     b.classList.toggle('active', b.dataset.kind === sheetSel.kind));
   const isNum = sheetSel.kind === 'number';
   const isEvent = sheetSel.kind === 'event';
-  $('#freq-block').classList.toggle('hidden', isNum || isEvent);
+  const isQuit = sheetSel.kind === 'quit';
+  $('#freq-block').classList.toggle('hidden', isNum || isEvent || isQuit);
   $('#number-block').classList.toggle('hidden', !isNum);
 
   if (isNum) {
     document.querySelectorAll('#direction-seg button').forEach((b) =>
       b.classList.toggle('active', b.dataset.dir === sheetSel.direction));
     $('#goal-label').textContent = sheetSel.direction === 'max' ? 'Höchstgrenze' : 'Tagesziel';
+  }
+
+  // Wochentags-Plan: für tägliche Abhaken-Habits und Zahlen-Habits
+  const showDays = (sheetSel.kind === 'check' && sheetSel.freq === 'daily') || isNum;
+  $('#days-block').classList.toggle('hidden', !showDays);
+  if (showDays) {
+    const dr = $('#days-row');
+    dr.innerHTML = '';
+    WEEKDAYS.forEach((w, i) => {
+      const b = document.createElement('button');
+      b.textContent = w;
+      b.classList.toggle('active', sheetSel.days.includes(i));
+      b.addEventListener('click', () => {
+        if (sheetSel.days.includes(i)) {
+          if (sheetSel.days.length === 1) return; // mindestens ein Tag bleibt
+          sheetSel.days = sheetSel.days.filter((x) => x !== i);
+        } else {
+          sheetSel.days = [...sheetSel.days, i].sort();
+        }
+        renderSheetControls();
+      });
+      dr.appendChild(b);
+    });
   }
 
   // Bestehende Ereignisse als Chips: antippen loggt sie direkt für heute
@@ -1483,6 +2016,7 @@ function saveHabit() {
 
   const isNum = sheetSel.kind === 'number';
   const isEvent = sheetSel.kind === 'event';
+  const isQuit = sheetSel.kind === 'quit';
   let unit = '', goal = 0;
   if (isNum) {
     unit = $('#inp-unit').value.trim() || '×';
@@ -1490,17 +2024,22 @@ function saveHabit() {
     if (isNaN(goal) || goal <= 0) { $('#inp-goal').focus(); return; }
   }
 
-  const freq = (isNum || isEvent)
+  const freq = (isNum || isEvent || isQuit)
     ? { type: 'daily', target: 1 }
     : { type: sheetSel.freq, target: sheetSel.freq === 'daily' ? 1 : sheetSel.target };
+
+  // Wochentags-Plan nur für tägliche Abhaken-Habits und Zahlen-Habits
+  const days = ((sheetSel.kind === 'check' && freq.type === 'daily') || isNum)
+    ? [...sheetSel.days] : undefined;
 
   if (editingId) {
     const h = state.habits.find((x) => x.id === editingId);
     Object.assign(h, { name, emoji: sheetSel.emoji, color: sheetSel.color, freq });
+    if (days) h.days = days; else delete h.days;
     if (h.kind === 'number') { h.unit = unit; h.goal = goal; h.direction = sheetSel.direction; }
   } else {
     const id = 'h' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-    state.habits.push({
+    const habit = {
       id,
       name,
       emoji: sheetSel.emoji,
@@ -1511,7 +2050,9 @@ function saveHabit() {
       direction: sheetSel.direction,
       freq,
       createdAt: iso(today()),
-    });
+    };
+    if (days) habit.days = days;
+    state.habits.push(habit);
     // Ein neues Ereignis anlegen heißt: es ist gerade passiert → direkt für heute loggen
     if (isEvent) setVal(id, iso(today()), 1);
   }
@@ -1602,8 +2143,8 @@ function importData(file) {
 document.querySelectorAll('.tab').forEach((b) =>
   b.addEventListener('click', () => { view = b.dataset.view; statsOffset = 0; dayOffset = 0; render(); }));
 
-$('#day-prev').addEventListener('click', () => { dayOffset--; render(); });
-$('#day-next').addEventListener('click', () => { if (dayOffset < 0) { dayOffset++; render(); } });
+$('#day-prev').addEventListener('click', () => { dayOffset--; moodExpanded = false; render(); });
+$('#day-next').addEventListener('click', () => { if (dayOffset < 0) { dayOffset++; moodExpanded = false; render(); } });
 $('#header-day').addEventListener('click', () => {
   if (view === 'today' && dayOffset < 0) { dayOffset = 0; render(); }
 });
@@ -1679,6 +2220,7 @@ $('#btn-log-clear').addEventListener('click', () => applyLog('clear'));
 $('#event-plus').addEventListener('click', () => adjustEvent(1));
 $('#event-minus').addEventListener('click', () => adjustEvent(-1));
 $('#btn-close-event').addEventListener('click', () => closeSheet($('#sheet-event')));
+$('#btn-close-mood').addEventListener('click', () => closeSheet($('#sheet-mood')));
 
 // Backdrop-Tap schließt jeweils nur das eigene Sheet
 document.querySelectorAll('.sheet-backdrop').forEach((bd) => {
