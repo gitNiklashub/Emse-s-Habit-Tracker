@@ -150,30 +150,45 @@ body.scroll-lock {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
-/* Sprechblase des Esels */
-.bubble {
-  position: relative;
+/* Sprechblase des Esels — jetzt ein kurzlebiger Toast, kein Dauer-Layout mehr.
+   Schwebt über der Karte, damit sie keinen Platz belegt und die Ringe darunter
+   nicht verschiebt. Erscheint nur bei Stimmungswechsel oder Streicheln. */
+.bubble-toast {
+  position: absolute;
+  left: 92px;
+  right: 14px;
+  top: 14px;
   background: var(--inset);
-  border-radius: 16px;
-  padding: 11px 13px;
-  font-size: 13.5px;
+  border-radius: 14px;
+  padding: 9px 12px;
+  font-size: 13px;
   font-weight: 600;
-  line-height: 1.45;
+  line-height: 1.4;
   color: var(--ink);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+  opacity: 0;
+  transform: translateY(-4px) scale(0.97);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+  pointer-events: none;
+  z-index: 2;
 }
-.bubble::before {
+.bubble-toast::before {
   content: '';
   position: absolute;
   left: -6px;
-  top: 50%;
+  top: 14px;
   width: 12px;
   height: 12px;
   background: var(--inset);
   border-radius: 3px;
-  transform: translateY(-50%) rotate(45deg);
+  transform: rotate(45deg);
+}
+.bubble-toast.show {
+  opacity: 1;
+  transform: translateY(0) scale(1);
 }
 
 .hero-progress {
@@ -948,13 +963,21 @@ body.scroll-lock {
   font-size: 12.5px;
   font-weight: 600;
   color: var(--muted);
-  padding: 0 2px;
+  padding: 0 48px 0 2px; /* rechts Platz fürs Mood-Badge lassen */
+  min-height: 20px;
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
+  gap: 6px;
+  white-space: nowrap;
+  overflow: hidden;
 }
-.streak-row b { color: var(--ink); font-weight: 800; }
+.streak-row b { color: var(--ink); font-weight: 800; flex-shrink: 0; }
+.streak-row .streak-habit {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
 .next-reward {
   background: var(--inset);
   border-radius: 999px;
@@ -1195,10 +1218,6 @@ body.scroll-lock {
   text-underline-offset: 3px;
 }
 
-.streak-row .streak-habit {
-  font-weight: 700;
-  color: var(--ink);
-}
 
 /* Ereignis-Badge (nur Anzeige + Anpassen, kein Schnell-Log) */
 .value-btn.event-badge { color: var(--muted); }
@@ -1426,3 +1445,67 @@ body.scroll-lock {
 .day-cell.mood-cell.future { cursor: default; }
 .m-cell.mood-m { cursor: pointer; }
 .m-cell.mood-m.future { cursor: default; }
+
+/* ---------- Multi-Ringe im Hero (Apple-Health-Stil) ---------- */
+
+.hero-rings {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.hero-rings .rings { flex-shrink: 0; }
+
+.rings-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.rl {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.rl b {
+  font-weight: 800;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.rl-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+
+/* ---------- Hero: Esel | Ringe | Zähler in einer Reihe ---------- */
+
+.hero { justify-content: space-between; }
+.hero > .rings { flex-shrink: 0; margin: 0 auto; }
+.hero > .rings-legend { flex-shrink: 0; }
+/* Platz fürs Mood-Badge unten rechts, wenn es da ist */
+.hero.has-mood > .rings-legend { margin-right: 40px; }
+
+/* ---------- Streak-Karte (Statistik) ---------- */
+
+.streak-card {
+  background: var(--card);
+  border-radius: 18px;
+  box-shadow: var(--shadow-soft);
+  padding: 12px 16px;
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.streak-card b { color: var(--ink); font-weight: 800; }

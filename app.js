@@ -10,8 +10,23 @@ const STORAGE_KEY = 'emse-habits-v1';
 
 // App-Version für die einmalige „Was ist neu"-Karte.
 // Bei jedem Update: Version hochzählen + CHANGELOG-Eintrag ergänzen.
-const APP_VERSION = 17;
+const APP_VERSION = 19;
 const CHANGELOG = [
+  {
+    v: 19,
+    items: [
+      '✨ Cleaner Hero: Esel, Ringe und Zähler in einer Reihe — die Sprechblase erscheint nur noch kurz beim Streicheln oder Stimmungswechsel.',
+      '🔥 Beste Serie & nächste Belohnung sind in den Statistik-Tab umgezogen (dort immer beide sichtbar).',
+      '💭 Die Stimmungs-Frage kommt jetzt erst abends ab 18 Uhr — nachtragen geht jederzeit über die Statistik.',
+    ],
+  },
+  {
+    v: 18,
+    items: [
+      '💍 Drei Ringe wie bei Apple Health: außen deine täglichen Habits, Mitte die Zahlen-Ziele (z. B. Eiweiß), innen das Wochen-/Monatspensum — jede Kategorie hat jetzt ihren eigenen Fortschritt.',
+      '🔄 Beste Serie und nächste Belohnung teilen sich eine Zeile und wechseln sich alle 5 Minuten ab — kein Gedränge mehr neben dem Stimmungs-Badge.',
+    ],
+  },
   {
     v: 17,
     items: [
@@ -128,6 +143,7 @@ let sheetSel = { emoji: EMOJIS[0], color: 'rose', freq: 'daily', target: 3, kind
 let logCtx = null;                // { habitId, date } fürs Wert-Sheet
 let moodCtx = null;               // ISO-Datum fürs Stimmungs-Sheet (Statistik)
 let moodExpanded = false;         // Mood-Karte trotz gesetzter Stimmung ausgeklappt
+let lastMood = null;              // letzte Hero-Stimmung — Toast nur bei Wechsel
 let eventCtx = null;              // { habitId, date } fürs Ereignis-Sheet
 let detail = null;                // { id, mode, offset } fürs Detail-Sheet
 
@@ -737,6 +753,36 @@ function ringSvg(pct, size = 76, stroke = 9) {
   </svg>`;
 }
 
+// Beste aktuelle Serie über alle Habits (für Esel-Accessoires + Statistik-Karte)
+function bestCurrentStreak() {
+  let best = null;
+  state.habits.forEach((h) => {
+    if (h.kind === 'event') return;
+    const st = streak(h);
+    if (st.n === 0) return;
+    const days = st.n * (h.freq.type === 'weekly' ? 7 : h.freq.type === 'monthly' ? 30 : 1);
+    if (!best || days > best.days) best = { h, st, days };
+  });
+  return best;
+}
+
+// Konzentrische Ringe (Apple-Health-Stil), außen → innen in Array-Reihenfolge
+function multiRingSvg(rings, size = 74, stroke = 7.5) {
+  const cx = size / 2;
+  let out = `<svg class="rings" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" aria-hidden="true">`;
+  rings.forEach((rg, i) => {
+    const r = size / 2 - stroke / 2 - i * (stroke + 2.5);
+    const circ = 2 * Math.PI * r;
+    const off = circ * (1 - Math.min(1, rg.frac));
+    out += `
+      <circle cx="${cx}" cy="${cx}" r="${r}" fill="none" stroke="${hexA(rg.color, 0.16)}" stroke-width="${stroke}"/>
+      <circle cx="${cx}" cy="${cx}" r="${r}" fill="none" stroke="${rg.color}" stroke-width="${stroke}"
+        stroke-linecap="round" stroke-dasharray="${circ}" stroke-dashoffset="${off}"
+        transform="rotate(-90 ${cx} ${cx})" class="ring-fill"/>`;
+  });
+  return out + '</svg>';
+}
+
 // ---------- Heute ----------
 
 function renderToday() {
@@ -758,65 +804,94 @@ function renderToday() {
   // Hero: Baby-Esel mit Stimmung + Spruch + Fortschritt des betrachteten Tags.
   // Wochen-/Monats-Habits zählen als erfüllt, sobald ihr Periodenziel steht;
   // Ereignis-Habits sind reine Logs und zählen gar nicht mit.
-  // Nur echte To-dos des Tages zählen: erledigte Wochenziele und Verzicht-Habits
-  // sind kein „vorausgefüllter" Fortschritt mehr
+  // Esel-Stimmung & Konfetti: echte To-dos des Tages (wie gehabt)
   const todos = state.habits.filter((h) => actionableOn(h, t));
   const doneCount = todos.filter((h) => doneOn(h, t)).length;
   const total = todos.length;
   const pct = total > 0 ? Math.round((doneCount / total) * 100) : 0;
   const mood = moodFor(total > 0 ? pct : 1); // nur Ereignis-Habits → neutral-hoffnungsvoll
 
-  // Streak & Belohnungen: beste Serie in ihrer eigenen Einheit + Habit-Name,
-  // damit Tages- und Wochen-Serien nicht durcheinandergehen
-  let best = null;
-  state.habits.forEach((h) => {
-    if (h.kind === 'event') return;
-    const st = streak(h);
-    if (st.n === 0) return;
-    const days = st.n * (h.freq.type === 'weekly' ? 7 : h.freq.type === 'monthly' ? 30 : 1);
-    if (!best || days > best.days) best = { h, st, days };
-  });
+  // Drei Ringe à la Apple Health — je Kategorie einer, nur wenn vorhanden.
+  // Verzicht bekommt bewusst keinen Ring (startet immer voll = aussagelos).
+  const rings = [];
+  const dailyChecks = state.habits.filter((h) => h.kind === 'check' && h.freq.type === 'daily' && scheduledOn(h, t));
+  if (dailyChecks.length) {
+    const done = dailyChecks.filter((h) => doneOn(h, t)).length;
+    rings.push({ color: '#C4547C', frac: done / dailyChecks.length, label: 'Heute', text: `${done}/${dailyChecks.length}`, cls: 'hero-count' });
+  }
+  const numbers = state.habits.filter((h) => h.kind === 'number' && scheduledOn(h, t));
+  if (numbers.length) {
+    const done = numbers.filter((h) => doneOn(h, t)).length;
+    rings.push({ color: '#3F7BC8', frac: done / numbers.length, label: 'Ziele', text: `${done}/${numbers.length}`, cls: 'hero-goals' });
+  }
+  const periodics = state.habits.filter((h) => h.kind === 'check' && h.freq.type !== 'daily');
+  if (periodics.length) {
+    let got = 0, target = 0;
+    periodics.forEach((h) => {
+      let cnt;
+      if (h.freq.type === 'weekly') {
+        const wk = monday(vd);
+        cnt = countInRange(h.id, wk, addDays(wk, 6));
+      } else {
+        const ms = monthStart(vd);
+        cnt = countInRange(h.id, ms, addDays(ms, daysInMonth(vd) - 1));
+      }
+      got += Math.min(cnt, h.freq.target);
+      target += h.freq.target;
+    });
+    const label = periodics.every((h) => h.freq.type === 'monthly') ? 'Monat' : 'Woche';
+    const frac = target > 0 ? got / target : 0;
+    rings.push({ color: '#4C8A4C', frac, label, text: `${Math.round(frac * 100)}%`, cls: 'hero-week' });
+  }
+
+  // Beste Serie nur noch für die Esel-Accessoires — die Anzeige lebt in der Statistik
+  const best = bestCurrentStreak();
   const sd = best ? best.days : 0;
-  const next = REWARDS.find((r) => sd < r.days);
-  const streakInfo = best
-    ? `🔥 Beste Serie: <b>${best.st.n} ${best.st.unit}</b> <span class="streak-habit">${best.h.emoji} ${esc(best.h.name)}</span>` +
-      (next
-        ? `<span class="next-reward">${next.icon} ${next.label} in ${next.days - sd} ${next.days - sd === 1 ? 'Tag' : 'Tagen'}</span>`
-        : '<span class="next-reward">👑 Alles freigeschaltet!</span>')
-    : `Starte eine Serie — ab 7 Tagen gibt's die erste Belohnung! 🌸`;
 
   const hero = document.createElement('div');
   hero.className = 'hero';
+  // Drittel-Layout: Esel links, Ringe in der Mitte, Zähler-Legende rechts
   hero.innerHTML = `
     <div class="donkey-tap" role="button" aria-label="Esel streicheln">${donkeySvg(mood, 104, accessoriesFor(sd))}</div>
-    <div class="hero-right">
-      <div class="bubble">${pickQuote(mood)}</div>
-      ${total > 0 ? `<div class="hero-progress">
-        <div class="hero-bar"><div style="width:${pct}%"></div></div>
-        <span class="hero-count">${doneCount}/${total}</span>
-      </div>` : ''}
-      <div class="streak-row">${streakInfo}</div>
-    </div>`;
+    <div class="bubble-toast" aria-live="polite"></div>
+    ${rings.length ? `${multiRingSvg(rings, 84, 8.5)}
+    <div class="rings-legend">${rings.map((r) =>
+      `<div class="rl"><span class="rl-dot" style="background:${r.color}"></span><b class="${r.cls}">${r.text}</b>&nbsp;${r.label}</div>`).join('')}</div>` : ''}`;
   main.appendChild(hero);
 
-  // Easter Egg: Esel antippen zum Streicheln — kurz Herzaugen + zufälliger Spruch
+  // Sprechblase nur noch als kurzer Toast: bei Stimmungswechsel oder Antippen
+  const toast = hero.querySelector('.bubble-toast');
+  let toastTimer;
+  const showToast = (text) => {
+    toast.textContent = text;
+    toast.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toast.classList.remove('show'), 2600);
+  };
+  if (mood !== lastMood) {
+    showToast(pickQuote(mood));
+    lastMood = mood;
+  }
+
+  // Easter Egg: Esel antippen zum Streicheln — kurz Herzaugen + Toast-Spruch
   const tapZone = hero.querySelector('.donkey-tap');
   tapZone.addEventListener('click', () => {
     tapZone.innerHTML = donkeySvg('heart', 104, accessoriesFor(sd));
     tapZone.classList.add('petted');
-    const bubble = hero.querySelector('.bubble');
-    bubble.textContent = pickPet();
+    showToast(pickPet());
     clearTimeout(tapZone._resetTimer);
     tapZone._resetTimer = setTimeout(() => {
       tapZone.innerHTML = donkeySvg(mood, 104, accessoriesFor(sd));
       tapZone.classList.remove('petted');
-      bubble.textContent = pickQuote(mood);
     }, 1800);
   });
 
   // Mood-Check-in: morgens einmal wählen, danach klappt die Karte in den Hero
   // (kleines Emoji-Badge oben rechts) — antippen klappt sie zum Ändern wieder aus
   const savedMood = state.moods[t];
+  // Die Abfrage kommt erst abends (ab 18 Uhr) — vergangene Tage sind eh vorbei;
+  // vorher lässt sich die Stimmung jederzeit über die Statistik eintragen
+  const eveningReached = !isToday || new Date().getHours() >= 18;
   if (savedMood && !moodExpanded) {
     const badge = document.createElement('button');
     badge.className = 'hero-mood';
@@ -824,7 +899,8 @@ function renderToday() {
     badge.textContent = MOODS[savedMood - 1].e;
     badge.addEventListener('click', () => { moodExpanded = true; render(); });
     hero.appendChild(badge);
-  } else {
+    hero.classList.add('has-mood');
+  } else if (savedMood || eveningReached) {
     const moodCard = document.createElement('div');
     moodCard.className = 'mood-card';
     moodCard.innerHTML = `
@@ -1132,6 +1208,20 @@ function renderStats() {
 
   main.innerHTML = '';
 
+  // Beste Serie + nächste Belohnung — hierher gezogen, damit der Hero clean bleibt
+  const best = bestCurrentStreak();
+  const sd = best ? best.days : 0;
+  const next = REWARDS.find((r) => sd < r.days);
+  const sc = document.createElement('div');
+  sc.className = 'streak-card';
+  sc.innerHTML = best
+    ? `<span class="sc-streak">🔥 Beste Serie: <b>${best.st.n} ${best.st.unit}</b> <span class="streak-habit">${best.h.emoji} ${esc(best.h.name)}</span></span>` +
+      (next
+        ? `<span class="next-reward">${next.icon} ${next.label} in ${next.days - sd} ${next.days - sd === 1 ? 'Tag' : 'Tagen'}</span>`
+        : '<span class="next-reward">👑 Alles freigeschaltet!</span>')
+    : `<span class="sc-streak">Starte eine Serie — ab 7 Tagen gibt's die erste Belohnung! 🌸</span>`;
+  main.appendChild(sc);
+
   const seg = document.createElement('div');
   seg.className = 'seg';
   seg.innerHTML = `
@@ -1149,7 +1239,6 @@ function renderStats() {
 
 // Stimmungs-Zeile für die Wochen-Statistik (nur wenn überhaupt Moods erfasst sind)
 function moodWeekCard(wk, t) {
-  if (Object.keys(state.moods).length === 0) return null;
   const card = document.createElement('div');
   card.className = 'stat-card';
   const vals = [];
@@ -1229,7 +1318,8 @@ function renderWeekStats() {
 
   state.habits.forEach((h) => {
     const c = COLORS[h.color] || COLORS.rose;
-    if (fromIso(h.createdAt) > wkEnd) return;
+    // Verzicht-Habits sind zeitlos: auch vor dem Anlegedatum anzeigen (Nachtragen!)
+    if (h.kind !== 'quit' && fromIso(h.createdAt) > wkEnd) return;
 
     const card = document.createElement('div');
     card.className = 'stat-card';
@@ -1365,8 +1455,8 @@ function renderMonthStats() {
   main.appendChild(summaryTile(pct,
     due > 0 ? `<b>${done}</b> von <b>${due}</b> fälligen Einheiten geschafft` : 'Keine fälligen Habits in diesem Monat'));
 
-  // Stimmungs-Kalender (nur wenn Moods erfasst wurden)
-  if (Object.keys(state.moods).length > 0) {
+  // Stimmungs-Kalender (immer da — auch zum erstmaligen Nachtragen)
+  {
     const mc = document.createElement('div');
     mc.className = 'stat-card';
     mc.innerHTML = `<div class="stat-head">
@@ -1402,7 +1492,8 @@ function renderMonthStats() {
 
   state.habits.forEach((h) => {
     const c = COLORS[h.color] || COLORS.rose;
-    if (fromIso(h.createdAt) > mEnd) return;
+    // Verzicht-Habits sind zeitlos: auch vor dem Anlegedatum anzeigen (Nachtragen!)
+    if (h.kind !== 'quit' && fromIso(h.createdAt) > mEnd) return;
 
     const isNum = h.kind === 'number';
     const isEvent = h.kind === 'event';
@@ -2239,6 +2330,8 @@ $('#inp-import').addEventListener('change', (e) => {
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) render();
 });
+
+
 
 // ---------- Service Worker ----------
 
