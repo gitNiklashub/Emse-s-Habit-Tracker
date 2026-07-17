@@ -10,8 +10,23 @@ const STORAGE_KEY = 'emse-habits-v1';
 
 // App-Version für die einmalige „Was ist neu"-Karte.
 // Bei jedem Update: Version hochzählen + CHANGELOG-Eintrag ergänzen.
-const APP_VERSION = 19;
+const APP_VERSION = 21;
 const CHANGELOG = [
+  {
+    v: 21,
+    items: [
+      '🌙 Der Esel lebt mit dir: nachts trägt er eine Schlafmütze, vor 7 Uhr ist er verschlafen — und zu Weihnachten, Silvester, Ostern und Halloween ist er passend verkleidet.',
+      '✨ Goldene Woche: schaffst du ALLES in einer Woche, glänzt dein Sonntagsbrief golden und der Esel trägt die Folgewoche sein Krönchen.',
+      '🏆 Erinnerungs-Album (Einstellungen): deine Rekorde, Belohnungen und alle bisherigen Wochenbriefe zum Nachlesen.',
+    ],
+  },
+  {
+    v: 20,
+    items: [
+      '📬 Post vom Esel! Sonntagabends flattert ein Wochenbrief rein: deine Bilanz, dein Star der Woche und aufrichtige Motivation für die nächste — egal wie die Woche lief.',
+      '🗂 Alte Wochenbriefe kannst du in der Statistik nachlesen (vergangene Woche öffnen → „Wochenbrief lesen").',
+    ],
+  },
   {
     v: 19,
     items: [
@@ -142,6 +157,7 @@ let editingId = null;             // Habit-ID im Sheet (null = neu)
 let sheetSel = { emoji: EMOJIS[0], color: 'rose', freq: 'daily', target: 3, kind: 'check', direction: 'min' };
 let logCtx = null;                // { habitId, date } fürs Wert-Sheet
 let moodCtx = null;               // ISO-Datum fürs Stimmungs-Sheet (Statistik)
+let letterCtx = null;             // { key, fromEnvelope } fürs Wochenbrief-Sheet
 let moodExpanded = false;         // Mood-Karte trotz gesetzter Stimmung ausgeklappt
 let lastMood = null;              // letzte Hero-Stimmung — Toast nur bei Wechsel
 let eventCtx = null;              // { habitId, date } fürs Ereignis-Sheet
@@ -561,23 +577,47 @@ function donkeySvg(mood, size = 104, acc = null) {
       <path d="M60 22 q10 -6 20 0 q-2 8 -10 8 q-8 0 -10 -8 Z" fill="${MANE}" opacity="0.9"/>`;
   }
 
-  // Belohnungs-Accessoires (durch Streaks freigeschaltet)
+  // Accessoires: eine Kopfbedeckung nach Priorität (Nacht > Saison > Krone > Hut),
+  // Blume und Kürbis unabhängig davon
   let gear = '';
   if (acc) {
-    if (acc.crown) {
-      gear += `<g data-acc="crown"><path d="M56 20 L60 35 L84 35 L88 20 L80 27 L72 16 L64 27 Z" fill="#F0C24B"/>
-        <circle cx="56" cy="19" r="2.6" fill="#F0C24B"/><circle cx="72" cy="15" r="2.6" fill="#F0C24B"/><circle cx="88" cy="19" r="2.6" fill="#F0C24B"/></g>`;
-    } else if (acc.hat) {
-      gear += `<g data-acc="hat"><polygon points="70,4 59,36 81,36" fill="#7A63C9"/>
+    const HEADWEAR = {
+      nightcap: `<g data-acc="nightcap">
+        <path d="M52 34 Q64 8 92 12 L102 26 Q90 20 84 30 Q72 16 58 38 Z" fill="#A99BD6"/>
+        <rect x="48" y="31" width="42" height="9" rx="4.5" fill="#fff"/>
+        <circle cx="104" cy="28" r="5.5" fill="#fff"/></g>`,
+      santa: `<g data-acc="santa">
+        <path d="M52 32 Q60 6 86 8 Q100 10 99 20 Q88 14 84 26 Q72 12 58 34 Z" fill="#D03B3B"/>
+        <rect x="48" y="29" width="42" height="9" rx="4.5" fill="#fff"/>
+        <circle cx="100" cy="19" r="5.5" fill="#fff"/></g>`,
+      wreath: `<g data-acc="wreath">
+        <path d="M48 46 Q70 31 92 46" stroke="#7FA65A" stroke-width="5" fill="none" stroke-linecap="round"/>
+        ${[[50, 45, '#F2A7BF'], [60, 39, '#F0C24B'], [70, 37, '#fff'], [80, 39, '#F2A7BF'], [90, 45, '#F0C24B']].map(([x, y, c]) =>
+          `<circle cx="${x}" cy="${y}" r="4.4" fill="${c}"/><circle cx="${x}" cy="${y}" r="1.7" fill="#E8862E"/>`).join('')}</g>`,
+      crown: `<g data-acc="crown"><path d="M56 20 L60 35 L84 35 L88 20 L80 27 L72 16 L64 27 Z" fill="#F0C24B"/>
+        <circle cx="56" cy="19" r="2.6" fill="#F0C24B"/><circle cx="72" cy="15" r="2.6" fill="#F0C24B"/><circle cx="88" cy="19" r="2.6" fill="#F0C24B"/></g>`,
+      hat: `<g data-acc="hat"><polygon points="70,4 59,36 81,36" fill="#7A63C9"/>
         <path d="M62.5 26 L77.5 26" stroke="#E5DEF8" stroke-width="4"/>
-        <circle cx="70" cy="4" r="4.2" fill="#F2A7BF"/></g>`;
-    }
+        <circle cx="70" cy="4" r="4.2" fill="#F2A7BF"/></g>`,
+    };
+    // Verdiente Kronen schlagen Saison-Deko; nur nachts wird immer geschlafen
+    const worn = ['nightcap', 'crown', 'santa', 'wreath', 'hat'].find((k) => acc[k]);
+    if (worn) gear += HEADWEAR[worn];
+
     if (acc.flower) {
       const px = 38, py = 45;
       gear += `<g data-acc="flower">
         ${[[0, -4.6], [4.4, -1.4], [2.7, 3.7], [-2.7, 3.7], [-4.4, -1.4]].map(([dx, dy]) =>
           `<circle cx="${px + dx}" cy="${py + dy}" r="3.4" fill="#F2A7BF"/>`).join('')}
         <circle cx="${px}" cy="${py}" r="2.6" fill="#F0C24B"/></g>`;
+    }
+    if (acc.pumpkin) {
+      gear += `<g data-acc="pumpkin">
+        <path d="M20 92 Q19 85 25 84" stroke="#4C8A4C" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+        <ellipse cx="20" cy="103" rx="14" ry="11" fill="#E8862E"/>
+        <ellipse cx="20" cy="103" rx="6" ry="11" fill="none" stroke="#C96A2E" stroke-width="1.5"/>
+        <path d="M13 100 l4.5 3.5 -4.5 2 z M27 100 l-4.5 3.5 4.5 2 z" fill="#5C3A10"/>
+        <path d="M14.5 109 q5.5 4.5 11 0" stroke="#5C3A10" stroke-width="2" fill="none" stroke-linecap="round"/></g>`;
     }
   }
 
@@ -619,6 +659,38 @@ function accessoriesFor(days) {
     hat: days >= 30 && days < 66,
     crown: days >= 66,
   };
+}
+
+// Gauß'sche Osterformel (gregorianisch)
+function easterSunday(y) {
+  const a = y % 19, b = Math.floor(y / 100), c = y % 100, d = Math.floor(b / 4), e = b % 4,
+    f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30,
+    i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7,
+    m = Math.floor((a + 11 * h + 22 * l) / 451),
+    month = Math.floor((h + l - 7 * m + 114) / 31), day = ((h + l - 7 * m + 114) % 31) + 1;
+  return new Date(y, month - 1, day);
+}
+
+// Goldene Woche: alles Fällige geschafft
+function goldenWeek(wk) {
+  const s = weekScore(wk);
+  return s.due > 0 && s.done >= s.due;
+}
+
+// Streak-Belohnungen + Goldene-Woche-Krönchen + Saison + Tageszeit, mit Priorität
+function currentAccessories(sd) {
+  const acc = accessoriesFor(sd);
+  if (goldenWeek(addDays(monday(today()), -7))) acc.crown = true; // Krönchen nach goldener Vorwoche
+  const now = new Date();
+  const h = now.getHours(), m = now.getMonth(), d = now.getDate();
+  if (m === 11) acc.santa = true;                                          // Dezember 🎅
+  if ((m === 11 && d === 31) || (m === 0 && d === 1)) { acc.santa = false; acc.hat = true; } // Silvester 🎉
+  if (m === 9 && d >= 25) acc.pumpkin = true;                              // Halloween 🎃
+  const es = easterSunday(now.getFullYear());
+  const diff = Math.round((new Date(now.getFullYear(), m, d) - es) / 86400000);
+  if (diff >= -2 && diff <= 1) acc.wreath = true;                          // Karfreitag–Ostermontag 🌼
+  if (h >= 22 || h < 7) acc.nightcap = true;                               // Nacht 😴
+  return acc;
 }
 
 // ---------- Konfetti (bei 100 % Tagesziel) ----------
@@ -809,7 +881,9 @@ function renderToday() {
   const doneCount = todos.filter((h) => doneOn(h, t)).length;
   const total = todos.length;
   const pct = total > 0 ? Math.round((doneCount / total) * 100) : 0;
-  const mood = moodFor(total > 0 ? pct : 1); // nur Ereignis-Habits → neutral-hoffnungsvoll
+  // Vor 7 Uhr ist auch der Esel noch verschlafen
+  const earlyMorning = new Date().getHours() < 7;
+  const mood = earlyMorning ? 'sleepy' : moodFor(total > 0 ? pct : 1);
 
   // Drei Ringe à la Apple Health — je Kategorie einer, nur wenn vorhanden.
   // Verzicht bekommt bewusst keinen Ring (startet immer voll = aussagelos).
@@ -847,12 +921,13 @@ function renderToday() {
   // Beste Serie nur noch für die Esel-Accessoires — die Anzeige lebt in der Statistik
   const best = bestCurrentStreak();
   const sd = best ? best.days : 0;
+  const acc = currentAccessories(sd); // Streak + Goldene Woche + Saison + Tageszeit
 
   const hero = document.createElement('div');
   hero.className = 'hero';
   // Drittel-Layout: Esel links, Ringe in der Mitte, Zähler-Legende rechts
   hero.innerHTML = `
-    <div class="donkey-tap" role="button" aria-label="Esel streicheln">${donkeySvg(mood, 104, accessoriesFor(sd))}</div>
+    <div class="donkey-tap" role="button" aria-label="Esel streicheln">${donkeySvg(mood, 104, acc)}</div>
     <div class="bubble-toast" aria-live="polite"></div>
     ${rings.length ? `${multiRingSvg(rings, 84, 8.5)}
     <div class="rings-legend">${rings.map((r) =>
@@ -876,12 +951,12 @@ function renderToday() {
   // Easter Egg: Esel antippen zum Streicheln — kurz Herzaugen + Toast-Spruch
   const tapZone = hero.querySelector('.donkey-tap');
   tapZone.addEventListener('click', () => {
-    tapZone.innerHTML = donkeySvg('heart', 104, accessoriesFor(sd));
+    tapZone.innerHTML = donkeySvg('heart', 104, acc);
     tapZone.classList.add('petted');
     showToast(pickPet());
     clearTimeout(tapZone._resetTimer);
     tapZone._resetTimer = setTimeout(() => {
-      tapZone.innerHTML = donkeySvg(mood, 104, accessoriesFor(sd));
+      tapZone.innerHTML = donkeySvg(mood, 104, acc);
       tapZone.classList.remove('petted');
     }, 1800);
   });
@@ -933,10 +1008,10 @@ function renderToday() {
     if (upd) main.appendChild(upd);
   }
 
-  // Wochenrückblick (sonntags für die laufende, montags für die letzte Woche)
+  // Wochenbrief: flattert sonntagabends rein (montags liegt er noch da)
   if (isToday) {
-    const review = buildReviewCard();
-    if (review) main.appendChild(review);
+    const envelope = buildEnvelope();
+    if (envelope) main.appendChild(envelope);
   }
 
   const label = document.createElement('div');
@@ -1139,27 +1214,48 @@ function weekScore(wk) {
   return { done, due, pct: due > 0 ? Math.round((done / due) * 100) : null };
 }
 
-function buildReviewCard() {
+// Motivations-Absätze je nach Wochenergebnis — der Esel urteilt nie, er mag dich
+const LETTER_MOTIVATION = {
+  great: [
+    'Ich bin so stolz auf dich, dass meine Ohren ganz von allein wackeln! Du hast diese Woche richtig was gerissen. Lass uns nächste Woche genau so weitertraben — oder mit einem kleinen Freudensprung extra! 🎉',
+    'IIIAAH! Was für eine Woche! Wenn ich Hufe zum Klatschen hätte, würdest du jetzt Standing Ovations bekommen. Nächste Woche zeigen wir allen, dass das kein Zufall war! ✨',
+    'Du warst diese Woche mein absoluter Lieblingsmensch (gut, das bist du immer). Diese Energie nehmen wir mit — die nächste Woche kann kommen! 💛',
+  ],
+  good: [
+    'Das war eine ordentliche Woche! Nicht jeder Tag war perfekt — muss er auch nicht. Die Richtung stimmt, und ich trab an deiner Seite. Nächste Woche holen wir uns noch ein Häkchen mehr! 🐾',
+    'Solide Woche, wirklich! Und weißt du was? Die perfekte Woche ist gar nicht das Ziel — dranbleiben ist es. Genau das machst du. Weiter so! 🌸',
+    'Gute Arbeit diese Woche! Ein paar Möhren haben wir liegen lassen, aber die holen wir uns nächste Woche einfach dazu. Ich glaub an dich! 🥕',
+  ],
+  rough: [
+    'Diese Woche war schwer, hm? Komm her, Ohrenkuscheln. 🫂 Weißt du, was ich an dir mag? Du bist noch da. Das zählt mehr als jedes Häkchen. Nächste Woche fangen wir klein an — ein Habit, ein Tag, ein Schritt. Ich bin bei dir.',
+    'Hey. Manche Wochen sind einfach zum Vergessen — und genau dafür gibt es neue Wochen. Kein Vorwurf, kein Drama, nur ein Esel, der dich anstupst: Morgen ist Montag, und Montage sind für Neuanfänge gemacht. 🌱',
+    'Die Häkchen waren diese Woche schüchtern — macht nichts. Auch ich verstecke mich manchmal hinterm Heuhaufen. Wichtig ist: Wir kommen beide wieder raus. Nächste Woche, du und ich, ein neuer Anlauf. Versprochen? 💛',
+  ],
+};
+
+const LETTER_PS = [
+  'P.S. Ich habe für dich eine extra Möhre in den Stall gelegt. 🥕',
+  'P.S. Streichel mich mal wieder — die Herzaugen vermisse ich schon!',
+  'P.S. Wusstest du, dass Esel bis zu 50 Jahre alt werden? So lange bleibe ich mindestens bei dir.',
+  'P.S. Vergiss dein Backup nicht — Einstellungen → Exportieren. Auch Briefe brauchen ein Zuhause. 📦',
+  'P.S. Falls es mal schwer wird: Ein Pause-Tag ist keine Schwäche, sondern Eselsweisheit. ⏸',
+];
+
+// Stabiler Mini-Hash, damit derselbe Brief beim erneuten Öffnen gleich bleibt
+function weekHash(key) {
+  let s = 0;
+  for (const ch of key) s = (s * 31 + ch.charCodeAt(0)) % 9973;
+  return s;
+}
+
+// Stärkster Habit einer Woche (fürs Briefpapier)
+function weekBestHabit(wk) {
   const t = today();
-  const dow = (t.getDay() + 6) % 7; // Mo=0 … So=6
-  let wk;
-  if (dow === 6) wk = monday(t);            // Sonntag: laufende Woche
-  else if (dow === 0) wk = addDays(monday(t), -7); // Montag: letzte Woche
-  else return null;
-
-  const key = iso(wk);
-  if (state.ui.reviewDismissed === key) return null;
-
-  const cur = weekScore(wk);
-  if (cur.due === 0) return null;
-  const prev = weekScore(addDays(wk, -7));
-
-  // Stärkster Habit dieser Woche
+  const wkEnd = addDays(wk, 6);
+  const upto = t < wkEnd ? t : wkEnd;
   let bestHabit = null, bestRatio = -1;
   state.habits.forEach((h) => {
     if (h.kind === 'event') return;
-    const wkEnd = addDays(wk, 6);
-    const upto = t < wkEnd ? t : wkEnd;
     if (fromIso(h.createdAt) > upto) return;
     const from = fromIso(h.createdAt) > wk ? fromIso(h.createdAt) : wk;
     let ratio;
@@ -1171,27 +1267,145 @@ function buildReviewCard() {
     } else return;
     if (ratio > bestRatio) { bestRatio = ratio; bestHabit = h; }
   });
+  return bestHabit ? { h: bestHabit, ratio: bestRatio } : null;
+}
+
+// Der Wochenbrief: Bilanz + Trend + Highlights + Motivation, als Briefpapier-HTML
+function composeLetter(wk) {
+  const wkEnd = addDays(wk, 6);
+  const cur = weekScore(wk);
+  const prev = weekScore(addDays(wk, -7));
+  const bestH = weekBestHabit(wk);
+  const bestS = bestCurrentStreak();
+  const hash = weekHash(iso(wk));
+
+  const fmt = (d) => d.toLocaleDateString('de-DE', { day: 'numeric', month: 'short' });
+  const pct = cur.pct ?? 0;
+  const tier = pct >= 80 ? 'great' : pct >= 40 ? 'good' : 'rough';
+  const motivation = LETTER_MOTIVATION[tier][hash % LETTER_MOTIVATION[tier].length];
+  const ps = LETTER_PS[hash % LETTER_PS.length];
 
   let trend = '';
   if (prev.pct !== null && cur.pct !== null) {
     const d = cur.pct - prev.pct;
-    if (d > 0) trend = `<span class="up">▲ ${d} Punkte</span> besser als letzte Woche`;
-    else if (d < 0) trend = `<span class="down">▼ ${-d} Punkte</span> unter letzter Woche — neue Woche, neues Glück!`;
-    else trend = 'genau wie letzte Woche';
+    if (d > 0) trend = `Das sind <b class="up">${d} Punkte mehr</b> als in der Woche davor — Trab aufgenommen!`;
+    else if (d < 0) trend = `Das sind ${-d} Punkte weniger als in der Woche davor — aber Briefe wie dieser sind zum Neustarten da.`;
+    else trend = 'Genau wie in der Woche davor — Beständigkeit ist auch eine Kunst.';
   }
 
-  const card = document.createElement('div');
-  card.className = 'review-card';
-  card.innerHTML = `
-    <div class="review-title">🗞️ Wochenrückblick</div>
-    <div class="review-line"><b>${cur.pct}%</b> geschafft (${cur.done}/${cur.due})${trend ? ' · ' + trend : ''}</div>
-    ${bestHabit ? `<div class="review-line">Stärkster Habit: ${bestHabit.emoji} <b>${esc(bestHabit.name)}</b> (${Math.round(bestRatio * 100)}%)</div>` : ''}
-    <button class="review-dismiss">Alles klar 🥕</button>`;
-  card.querySelector('.review-dismiss').addEventListener('click', () => {
-    state.ui.reviewDismissed = key;
-    save();
-    render();
+  // Stimmungs-Schnitt der Woche
+  const moodVals = [];
+  for (let i = 0; i < 7; i++) {
+    const v = state.moods[iso(addDays(wk, i))];
+    if (v) moodVals.push(v);
+  }
+  const moodLine = moodVals.length
+    ? `<p>Deine Stimmung diese Woche: im Schnitt ${MOODS[Math.round(moodVals.reduce((a, b) => a + b, 0) / moodVals.length) - 1].e} — danke, dass du sie mit mir teilst.</p>`
+    : '';
+
+  return `
+    <div class="letter-head">${donkeySvg('happy', 56)}<div>
+      <div class="letter-title">Post vom Esel</div>
+      <div class="letter-date">Woche vom ${fmt(wk)} – ${fmt(wkEnd)}</div>
+    </div></div>
+    <p class="letter-greet">Liebe Emse,</p>
+    <p>${cur.due > 0
+      ? `diese Woche hast du <b>${cur.pct}%</b> deiner Vorhaben geschafft (${cur.done} von ${cur.due}). ${trend}`
+      : 'diese Woche war noch nichts fällig — perfekte Gelegenheit, nächste Woche gemeinsam loszulegen!'}</p>
+    ${bestH ? `<p>Dein Star der Woche: ${bestH.h.emoji} <b>${esc(bestH.h.name)}</b> mit ${Math.round(bestH.ratio * 100)}% — Respekt!</p>` : ''}
+    ${bestS ? `<p>Und deine beste Serie steht bei <b>${bestS.st.n} ${bestS.st.unit}</b> (${bestS.h.emoji} ${esc(bestS.h.name)}) 🔥</p>` : ''}
+    ${moodLine}
+    ${goldenWeek(wk) ? '<p class="letter-gold-note">✨ <b>Goldene Woche!</b> Du hast restlos alles geschafft. Zur Feier trage ich nächste Woche mein Krönchen — nur für dich. 👑</p>' : ''}
+    <p class="letter-motivation" data-tier="${tier}">${motivation}</p>
+    <p class="letter-sign">Dein Esel 🐴💛</p>
+    <p class="letter-ps">${ps}</p>`;
+}
+
+function openLetter(wk, fromEnvelope) {
+  letterCtx = { key: iso(wk), fromEnvelope: !!fromEnvelope };
+  $('#letter-content').classList.toggle('letter-golden', goldenWeek(wk));
+  $('#letter-content').innerHTML = composeLetter(wk);
+  $('#btn-close-letter').textContent = fromEnvelope ? 'Danke, Esel! 💛' : 'Schließen';
+  openSheet($('#sheet-letter'));
+}
+
+// ---------- Erinnerungs-Album ----------
+
+function openAlbum() {
+  const box = $('#album-content');
+  const t = today();
+
+  // Rekord-Serie aller Zeiten (über alle Habits)
+  let rec = null;
+  state.habits.forEach((h) => {
+    if (h.kind === 'event') return;
+    const r = bestStreakEver(h);
+    if (r.n === 0) return;
+    const days = r.n * (h.freq.type === 'weekly' ? 7 : h.freq.type === 'monthly' ? 30 : 1);
+    if (!rec || days > rec.days) rec = { h, r, days };
   });
+  const everDays = rec ? rec.days : 0;
+
+  // Abgeschlossene Wochen (bis 12 zurück) + goldene zählen
+  const rows = [];
+  let goldenCount = 0;
+  if (state.habits.length) {
+    const first = state.habits.reduce((a, h) => fromIso(h.createdAt) < a ? fromIso(h.createdAt) : a, t);
+    let wk = addDays(monday(t), -7);
+    for (let i = 0; i < 12 && addDays(wk, 6) >= first; i++, wk = addDays(wk, -7)) {
+      const s = weekScore(wk);
+      if (s.due === 0) continue;
+      const g = goldenWeek(wk);
+      if (g) goldenCount++;
+      rows.push({ wk: new Date(wk), pct: s.pct, g });
+    }
+  }
+
+  box.innerHTML = `
+    ${rec ? `<div class="album-record">🔥 Rekord-Serie: <b>${rec.r.n} ${rec.r.unit}</b> ${rec.h.emoji} ${esc(rec.h.name)}${goldenCount ? ` &nbsp;·&nbsp; ✨ ${goldenCount} goldene Woche${goldenCount === 1 ? '' : 'n'}` : ''}</div>` : '<p class="hint">Noch keine Serien — dein Album füllt sich von ganz allein. 🌱</p>'}
+    <h3>Belohnungen</h3>
+    <div class="album-rewards">${REWARDS.map((rw) =>
+      `<div class="album-reward ${everDays >= rw.days ? '' : 'locked'}"><span>${rw.icon}</span><b>${rw.label}</b><small>ab ${rw.days} Tagen</small></div>`).join('')}</div>
+    <h3>Wochenbriefe</h3>
+    ${rows.length ? '<div class="album-letters"></div>' : '<p class="hint">Noch keine abgeschlossenen Wochen — dein erster Brief kommt am Sonntag! 📬</p>'}`;
+
+  const list = box.querySelector('.album-letters');
+  if (list) {
+    const fmt = (d) => d.toLocaleDateString('de-DE', { day: 'numeric', month: 'short' });
+    rows.forEach(({ wk, pct, g }) => {
+      const b = document.createElement('button');
+      b.className = 'album-letter-row';
+      b.innerHTML = `<span>${g ? '✨' : '📬'} ${fmt(wk)} – ${fmt(addDays(wk, 6))}</span><b>${pct}%</b><span class="chev">›</span>`;
+      b.addEventListener('click', () => openLetter(wk, false));
+      list.appendChild(b);
+    });
+  }
+  openSheet($('#sheet-album'));
+}
+
+// Sonntagabend flattert der Brief rein (montags liegt er noch da)
+function buildEnvelope() {
+  const t = today();
+  const dow = (t.getDay() + 6) % 7; // Mo=0 … So=6
+  let wk;
+  if (dow === 6 && new Date().getHours() >= 18) wk = monday(t); // So ab 18 Uhr: laufende Woche
+  else if (dow === 0) wk = addDays(monday(t), -7);              // Mo: letzte Woche
+  else return null;
+
+  const key = iso(wk);
+  if (state.ui.reviewDismissed === key) return null;
+  if (weekScore(wk).due === 0) return null;
+
+  const golden = goldenWeek(wk);
+  const card = document.createElement('button');
+  card.className = 'envelope-card' + (golden ? ' golden' : '');
+  card.innerHTML = `
+    <span class="envelope-icon">${golden ? '💌' : '📬'}</span>
+    <span class="envelope-text">
+      <span class="envelope-title">${golden ? '✨ Goldene Post!' : 'Post vom Esel!'}</span>
+      <span class="envelope-sub">${golden ? 'Eine perfekte Woche — dieser Brief glänzt' : 'Dein Wochenbrief ist da — antippen zum Öffnen'}</span>
+    </span>`;
+  card.addEventListener('click', () => openLetter(wk, true));
   return card;
 }
 
@@ -1312,6 +1526,15 @@ function renderWeekStats() {
   const score = weekScore(wk);
   main.appendChild(summaryTile(score.pct,
     score.due > 0 ? `<b>${score.done}</b> von <b>${score.due}</b> fälligen Einheiten geschafft` : 'Keine fälligen Habits in dieser Woche'));
+
+  // Abgeschlossene Wochen: der Wochenbrief bleibt nachlesbar
+  if (!isCurrent) {
+    const lb = document.createElement('button');
+    lb.className = 'btn ghost letter-btn';
+    lb.textContent = '📬 Wochenbrief lesen';
+    lb.addEventListener('click', () => openLetter(wk, false));
+    main.appendChild(lb);
+  }
 
   const moodCard = moodWeekCard(wk, t);
   if (moodCard) main.appendChild(moodCard);
@@ -2246,6 +2469,9 @@ $('#btn-settings').addEventListener('click', () => {
   openSheet($('#sheet-settings'));
 });
 
+$('#btn-album').addEventListener('click', openAlbum);
+$('#btn-close-album').addEventListener('click', () => closeSheet($('#sheet-album')));
+
 $('#btn-pause-today').addEventListener('click', () => {
   const t = iso(today());
   if (state.pauses[t]) delete state.pauses[t];
@@ -2312,6 +2538,15 @@ $('#event-plus').addEventListener('click', () => adjustEvent(1));
 $('#event-minus').addEventListener('click', () => adjustEvent(-1));
 $('#btn-close-event').addEventListener('click', () => closeSheet($('#sheet-event')));
 $('#btn-close-mood').addEventListener('click', () => closeSheet($('#sheet-mood')));
+$('#btn-close-letter').addEventListener('click', () => {
+  if (letterCtx && letterCtx.fromEnvelope) {
+    state.ui.reviewDismissed = letterCtx.key;
+    save();
+  }
+  letterCtx = null;
+  closeSheet($('#sheet-letter'));
+  render();
+});
 
 // Backdrop-Tap schließt jeweils nur das eigene Sheet
 document.querySelectorAll('.sheet-backdrop').forEach((bd) => {

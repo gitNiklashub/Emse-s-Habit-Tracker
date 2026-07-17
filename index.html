@@ -15,7 +15,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Habits">
 
-  <link rel="stylesheet" href="style.css?v=19">
+  <link rel="stylesheet" href="style.css?v=21">
 </head>
 <body>
   <div class="app">
@@ -188,6 +188,29 @@
     </div>
   </div>
 
+  <!-- Erinnerungs-Album -->
+  <div id="sheet-album" class="sheet-backdrop hidden">
+    <div class="sheet" role="dialog" aria-modal="true">
+      <div class="sheet-handle"></div>
+      <h2>🏆 Erinnerungs-Album</h2>
+      <div id="album-content"></div>
+      <div class="sheet-actions">
+        <button id="btn-close-album" class="btn primary">Fertig</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Wochenbrief vom Esel -->
+  <div id="sheet-letter" class="sheet-backdrop hidden">
+    <div class="sheet letter-sheet" role="dialog" aria-modal="true">
+      <div class="sheet-handle"></div>
+      <div id="letter-content" class="letter"></div>
+      <div class="sheet-actions">
+        <button id="btn-close-letter" class="btn primary">Danke, Esel! 💛</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Stimmung nachtragen (über die Statistik) -->
   <div id="sheet-mood" class="sheet-backdrop hidden">
     <div class="sheet" role="dialog" aria-modal="true">
@@ -217,6 +240,14 @@
     <div class="sheet" role="dialog" aria-modal="true">
       <div class="sheet-handle"></div>
       <h2>Einstellungen</h2>
+
+      <div class="settings-group">
+        <h3>Erinnerungen</h3>
+        <p class="hint">Deine Rekorde, Belohnungen und alle Wochenbriefe vom Esel.</p>
+        <div class="settings-actions">
+          <button id="btn-album" class="btn ghost">🏆 Album öffnen</button>
+        </div>
+      </div>
 
       <div class="settings-group">
         <h3>Pause-Tag</h3>
@@ -252,6 +283,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=19"></script>
+  <script src="app.js?v=21"></script>
 </body>
 </html>

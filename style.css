@@ -1509,3 +1509,183 @@ body.scroll-lock {
   color: var(--muted);
 }
 .streak-card b { color: var(--ink); font-weight: 800; }
+
+/* ---------- Wochenbrief: Umschlag flattert rein ---------- */
+
+.envelope-card {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: linear-gradient(135deg, #FFF6E9, #FDEFF4);
+  border: 1.5px solid rgba(196, 84, 124, 0.2);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 16px 18px;
+  margin-bottom: 14px;
+  cursor: pointer;
+  text-align: left;
+  animation: flutter-in 0.9s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+.envelope-card:active { transform: scale(0.97); }
+
+@keyframes flutter-in {
+  0% { opacity: 0; transform: translateY(-40px) rotate(-6deg); }
+  55% { opacity: 1; transform: translateY(6px) rotate(2.5deg); }
+  80% { transform: translateY(-2px) rotate(-1deg); }
+  100% { transform: translateY(0) rotate(0); }
+}
+
+.envelope-icon {
+  font-size: 34px;
+  animation: envelope-wiggle 2.6s ease-in-out infinite;
+}
+@keyframes envelope-wiggle {
+  0%, 100% { transform: rotate(0); }
+  6%, 18% { transform: rotate(-7deg); }
+  12%, 24% { transform: rotate(7deg); }
+  30% { transform: rotate(0); }
+}
+
+.envelope-text { display: flex; flex-direction: column; gap: 2px; }
+.envelope-title { font-size: 15.5px; font-weight: 800; letter-spacing: -0.01em; }
+.envelope-sub { font-size: 13px; font-weight: 500; color: var(--muted); }
+
+/* ---------- Briefpapier ---------- */
+
+.letter-sheet .sheet-handle { margin-bottom: 8px; }
+
+.letter {
+  background: #FFFDF6;
+  border: 1.5px solid #F0E4CF;
+  border-radius: 16px;
+  padding: 20px 18px;
+  box-shadow: inset 0 0 30px rgba(214, 188, 140, 0.08);
+}
+.letter p {
+  font-size: 14.5px;
+  line-height: 1.65;
+  color: var(--ink);
+  margin-bottom: 12px;
+}
+.letter .up { color: #4C8A4C; }
+
+.letter-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 12px;
+  margin-bottom: 14px;
+  border-bottom: 1.5px dashed #EADFC8;
+}
+.letter-title { font-size: 17px; font-weight: 800; letter-spacing: -0.01em; }
+.letter-date { font-size: 12.5px; font-weight: 600; color: var(--muted); margin-top: 1px; }
+
+.letter-greet { font-style: italic; font-weight: 600; }
+.letter-motivation {
+  background: rgba(196, 84, 124, 0.06);
+  border-left: 3px solid var(--accent-2);
+  border-radius: 0 12px 12px 0;
+  padding: 10px 12px;
+}
+.letter-sign {
+  font-style: italic;
+  font-weight: 700;
+  text-align: right;
+  margin-top: 16px;
+}
+.letter-ps {
+  font-size: 12.5px !important;
+  color: var(--muted) !important;
+  margin-bottom: 0 !important;
+}
+
+/* Nachlese-Button in der Wochen-Statistik */
+.letter-btn {
+  width: 100%;
+  margin-bottom: 14px;
+  flex: none;
+  padding: 12px 0;
+  font-size: 14px;
+}
+
+/* ---------- Goldene Woche ---------- */
+
+.envelope-card.golden {
+  background: linear-gradient(135deg, #FFF3D6, #FDEBC8, #FFF6E0);
+  border-color: rgba(212, 160, 40, 0.45);
+  box-shadow: 0 8px 24px rgba(212, 160, 40, 0.22);
+}
+.envelope-card.golden .envelope-title { color: #9A6B00; }
+
+.letter-golden {
+  border-color: #E4C465 !important;
+  box-shadow: inset 0 0 34px rgba(228, 196, 101, 0.22), 0 0 0 3px rgba(228, 196, 101, 0.25) !important;
+}
+.letter-gold-note {
+  background: rgba(240, 194, 75, 0.14);
+  border-left: 3px solid #E4C465;
+  border-radius: 0 12px 12px 0;
+  padding: 10px 12px;
+}
+
+/* ---------- Erinnerungs-Album ---------- */
+
+#album-content h3 {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 18px 4px 10px;
+}
+
+.album-record {
+  background: var(--card);
+  border-radius: 16px;
+  box-shadow: var(--shadow-soft);
+  padding: 13px 15px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.album-record b { color: var(--ink); font-weight: 800; }
+
+.album-rewards { display: flex; gap: 10px; }
+.album-reward {
+  flex: 1;
+  background: var(--card);
+  border-radius: 16px;
+  box-shadow: var(--shadow-soft);
+  padding: 12px 6px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.album-reward span { font-size: 24px; }
+.album-reward b { font-size: 12.5px; font-weight: 800; }
+.album-reward small { font-size: 10.5px; color: var(--muted); font-weight: 600; }
+.album-reward.locked { opacity: 0.45; }
+.album-reward.locked span { filter: grayscale(1); }
+
+.album-letters { display: flex; flex-direction: column; gap: 8px; }
+.album-letter-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: none;
+  background: var(--card);
+  border-radius: 14px;
+  box-shadow: var(--shadow-soft);
+  padding: 12px 14px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+}
+.album-letter-row b { font-variant-numeric: tabular-nums; }
+.album-letter-row .chev { color: var(--faint); font-weight: 700; }
+.album-letter-row:active { transform: scale(0.98); }
