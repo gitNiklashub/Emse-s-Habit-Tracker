@@ -10,8 +10,15 @@ const STORAGE_KEY = 'emse-habits-v1';
 
 // App-Version für die einmalige „Was ist neu"-Karte.
 // Bei jedem Update: Version hochzählen + CHANGELOG-Eintrag ergänzen.
-const APP_VERSION = 21;
+const APP_VERSION = 22;
 const CHANGELOG = [
+  {
+    v: 22,
+    items: [
+      '📱 Stabiler auf dem iPhone: ruhigeres Rendern (kein Zucken beim Abhaken), robusterer Header auf schmalen Displays, flackerfreie Tab-Leiste.',
+      '💌 Der Esel fragt nach deinem Namen und spricht dich in Briefen persönlich an — änderbar in den Einstellungen.',
+    ],
+  },
   {
     v: 21,
     items: [
@@ -768,7 +775,13 @@ function pickPet() {
 const $ = (sel) => document.querySelector(sel);
 const main = $('#main');
 
+let lastRenderedView = null;
+
 function render() {
+  // Einblend-Animationen nur beim Wechsel der Ansicht — nicht bei jedem
+  // Abhaken/Update, sonst zuckt die ganze Liste bei jeder Interaktion
+  main.classList.toggle('fresh', view !== lastRenderedView);
+  lastRenderedView = view;
   const vd = addDays(today(), view === 'today' ? dayOffset : 0);
   $('#header-title').textContent = view === 'stats' ? 'Statistik'
     : dayOffset === 0 ? 'Heute'
@@ -1006,6 +1019,35 @@ function renderToday() {
   if (isToday) {
     const upd = buildUpdateCard();
     if (upd) main.appendChild(upd);
+  }
+
+  // Einmalige Namens-Frage (für persönliche Briefe) — überspringbar
+  if (isToday && !state.ui.userName && !state.ui.nameAsked) {
+    const nc = document.createElement('div');
+    nc.className = 'name-card';
+    nc.innerHTML = `
+      <div class="mood-q">👋 Wie darf dich der Esel nennen?</div>
+      <div class="name-row">
+        <input id="inp-username" type="text" placeholder="Dein Name" maxlength="20" autocomplete="given-name">
+        <button id="btn-username-save" class="btn primary">Los!</button>
+      </div>
+      <button id="btn-username-skip" class="mood-collapse">Lieber nicht — dann sagt er einfach „du"</button>`;
+    nc.querySelector('#btn-username-save').addEventListener('click', () => {
+      const v = nc.querySelector('#inp-username').value.trim();
+      if (v) state.ui.userName = v;
+      state.ui.nameAsked = true;
+      save();
+      render();
+    });
+    nc.querySelector('#inp-username').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') nc.querySelector('#btn-username-save').click();
+    });
+    nc.querySelector('#btn-username-skip').addEventListener('click', () => {
+      state.ui.nameAsked = true;
+      save();
+      render();
+    });
+    main.appendChild(nc);
   }
 
   // Wochenbrief: flattert sonntagabends rein (montags liegt er noch da)
@@ -1308,7 +1350,7 @@ function composeLetter(wk) {
       <div class="letter-title">Post vom Esel</div>
       <div class="letter-date">Woche vom ${fmt(wk)} – ${fmt(wkEnd)}</div>
     </div></div>
-    <p class="letter-greet">Liebe Emse,</p>
+    <p class="letter-greet">Hallo ${state.ui.userName ? esc(state.ui.userName) : 'du'},</p>
     <p>${cur.due > 0
       ? `diese Woche hast du <b>${cur.pct}%</b> deiner Vorhaben geschafft (${cur.done} von ${cur.due}). ${trend}`
       : 'diese Woche war noch nichts fällig — perfekte Gelegenheit, nächste Woche gemeinsam loszulegen!'}</p>
@@ -2391,6 +2433,7 @@ function deleteHabit() {
 // ---------- Einstellungen (Pause & Reihenfolge) ----------
 
 function renderSettings() {
+  $('#inp-settings-name').value = state.ui.userName || '';
   const t = iso(today());
   $('#btn-pause-today').textContent = isPause(t)
     ? 'Pause für heute aufheben'
@@ -2467,6 +2510,14 @@ $('#btn-add').addEventListener('click', () => openHabitSheet(null));
 $('#btn-settings').addEventListener('click', () => {
   renderSettings();
   openSheet($('#sheet-settings'));
+});
+
+$('#inp-settings-name').addEventListener('change', () => {
+  const v = $('#inp-settings-name').value.trim();
+  if (v) state.ui.userName = v;
+  else delete state.ui.userName;
+  state.ui.nameAsked = true;
+  save();
 });
 
 $('#btn-album').addEventListener('click', openAlbum);
