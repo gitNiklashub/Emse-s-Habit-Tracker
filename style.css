@@ -1774,3 +1774,33 @@ body.scroll-lock {
   margin-top: 10px;
 }
 .settings-input:focus { box-shadow: 0 0 0 2.5px var(--accent-soft); }
+
+/* ---------- Maskottchen-Auswahl (Einstellungen) ---------- */
+
+.mascot-row { display: flex; gap: 10px; margin-top: 10px; }
+.mascot-choice {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: var(--inset);
+  border-radius: 16px;
+  padding: 12px 8px;
+  cursor: pointer;
+}
+.mascot-choice .mascot-preview {
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.mascot-choice b { font-size: 12.5px; font-weight: 700; color: var(--muted); }
+.mascot-choice.active {
+  background: #fff;
+  box-shadow: 0 0 0 2.5px var(--accent), var(--shadow-soft);
+}
+.mascot-choice.active b { color: var(--ink); }
+.mascot-choice:active { transform: scale(0.97); }

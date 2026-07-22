@@ -10,8 +10,20 @@ const STORAGE_KEY = 'emse-habits-v1';
 
 // App-Version für die einmalige „Was ist neu"-Karte.
 // Bei jedem Update: Version hochzählen + CHANGELOG-Eintrag ergänzen.
-const APP_VERSION = 22;
+const APP_VERSION = 24;
 const CHANGELOG = [
+  {
+    v: 24,
+    items: [
+      '🐛 Kleiner Textfehler behoben: der Wochenbrief-Button zeigte kurz „Danke, Esel!" auch im Otter-Modus, bevor er sich korrigierte.',
+    ],
+  },
+  {
+    v: 23,
+    items: [
+      '🦦 Neues Maskottchen: Wähle in den Einstellungen zwischen Esel und Otter — mit eigenem Charakter in Sprüchen, Stimmungs-Reaktionen und Wochenbriefen.',
+    ],
+  },
   {
     v: 22,
     items: [
@@ -152,6 +164,76 @@ const PETS = [
   'Du bist mein Lieblingsmensch. 💖',
   'Möhren später? Ich freu mich schon! 🥕',
 ];
+
+// Otter-Pendants: gleiche Struktur, eigener Wortschatz (Fluss statt Möhrenfeld,
+// Muscheln statt Möhren, Flitzen statt Traben)
+const MOODS_OTTER_REACTIONS = [
+  'Oh nein… komm her, Bauchkuscheln! 🫂 Morgen wird\'s leichter.',
+  'Halb so wild. Ein kleiner Habit spült die Laune weg — versprochen! 🌊',
+  'Okay-Tage gehören dazu. Ich schwimm an deiner Seite! 🦦',
+  'Schön zu hören! Weiter so! 💛',
+  'Wiiiii, das freut mich riesig! ✨',
+];
+
+const QUOTES_OTTER = {
+  sleepy: [
+    'Noch ganz verschlafen hier, eingerollt im Seetang. Ein kleiner Schritt reicht für den Anfang! 🌱',
+    'Auch ein kleiner Otter fängt mal klein an. Los geht\'s!',
+    'Heute noch nichts? Kein Stress — jetzt ist der beste Moment. ✨',
+    'Ich glaub an dich. Ein Habit, dann gibt\'s eine Extra-Muschel! 🐚',
+    'Aufstehen, strecken, reinspringen — ich mach\'s dir vor! 💪',
+  ],
+  hopeful: [
+    'Guter Start! Ein Häkchen nach dem anderen. 🦦',
+    'Wiiiii! Weiter so, der Tag gehört dir!',
+    'Schritt für Schritt — genau so wird\'s gemacht! 🌊',
+    'Die Muschel ist schon in Sicht. Dranbleiben! 🐚',
+    'Du bist auf dem Weg — ich schwimm neben dir her! 💛',
+  ],
+  happy: [
+    'Wow, schon über die Hälfte! Ich bin stolz auf dich! 🎀',
+    'Das läuft ja richtig gut heute!',
+    'Fast geschafft — der Endspurt ist unser Ding! 🏊',
+    'Noch ein kleiner Flitzer bis zum Ziel! 🦦',
+    'So viel geschafft — Muschelpause verdient! 🐚',
+  ],
+  party: [
+    'WIIII! Alles geschafft! Du bist der Wahnsinn! 🎉',
+    '100 %! Heute plantschen wir im Fluss! 🌊',
+    'Perfekter Tag! Ich mach Wasser-Purzelbäume! ✨',
+    'Alle Habits erledigt — du bist mein Held! 💖',
+    'Volle Muschelbank! Besser geht\'s nicht! 🐚✨',
+  ],
+  midnight: [
+    'Psst… es ist mitten in der Nacht. Ich träume von ruhigen Flüssen. 🌙',
+    'Ganz leise. Alle anderen Otter schlafen schon. ✨',
+    'Nachteule oder Frühaufsteher? So oder so: geh bald schlafen. 😴',
+    'Die Sterne spiegeln sich schön im Wasser heute Nacht. 🌌',
+    'Ich bewache deine Habits, während die Welt schläft. 🌛',
+  ],
+};
+
+const PETS_OTTER = [
+  'Wiiii! Das kitzelt! 🥰',
+  'Danke fürs Kraulen! 💛',
+  'Mehr davon, bitte! 🦦',
+  'Du bist mein Lieblingsmensch. 💖',
+  'Muscheln später? Ich freu mich schon! 🐚',
+];
+
+// Mascot-bewusste Textauswahl — zieht Sprüche/Reaktionen vom gewählten Tier
+function mascotQuotes(mood) {
+  return state.ui.mascot === 'otter' ? QUOTES_OTTER[mood] : QUOTES[mood];
+}
+function mascotPets() {
+  return state.ui.mascot === 'otter' ? PETS_OTTER : PETS;
+}
+function mascotMoodReaction(v) {
+  return state.ui.mascot === 'otter' ? MOODS_OTTER_REACTIONS[v - 1] : MOODS[v - 1].reaction;
+}
+function mascotName() {
+  return state.ui.mascot === 'otter' ? 'Otter' : 'Esel';
+}
 
 // ---------- State ----------
 
@@ -652,6 +734,125 @@ function donkeySvg(mood, size = 104, acc = null) {
   </svg>`;
 }
 
+// Zweites wählbares Maskottchen: ein kleiner Otter. Gleiche Mood-Namen und
+// Accessoire-Objekte wie der Esel, andere Anatomie (rundes Gesicht, kein Ohren-
+// Winkel-Trick, dafür Schnurrhaare) — Kopfbedeckungen sitzen etwas tiefer.
+function otterSvg(mood, size = 104, acc = null) {
+  const BODY = '#C99A6E', DARK = '#A87A50', MUZZLE = '#F3E6D4',
+        BELLY = '#F6EDE0', EYE = '#3E2E1F', BLUSH = '#F5B8C9', NOSE = '#6B4A32';
+
+  let eyes, mouth, extra = '';
+  const whiskers = `<g stroke="${DARK}" stroke-width="1.6" stroke-linecap="round" opacity="0.55">
+      <path d="M48 88 q-14 -2 -20 -6 M48 93 q-15 2 -21 3"/>
+      <path d="M92 88 q14 -2 20 -6 M92 93 q15 2 21 3"/></g>`;
+
+  if (mood === 'sleepy') {
+    eyes = `<path d="M50 62 q6 5 12 0" fill="none" stroke="${EYE}" stroke-width="3" stroke-linecap="round"/>
+            <path d="M78 62 q6 5 12 0" fill="none" stroke="${EYE}" stroke-width="3" stroke-linecap="round"/>`;
+    mouth = `<path d="M62 92 q8 -6 16 0" fill="none" stroke="${DARK}" stroke-width="3" stroke-linecap="round"/>`;
+    extra = `<text x="106" y="26" font-size="15" font-weight="800" fill="${DARK}" transform="rotate(14 106 26)">z</text>
+             <text x="117" y="14" font-size="11" font-weight="800" fill="${DARK}" transform="rotate(14 117 14)">z</text>`;
+  } else if (mood === 'hopeful') {
+    eyes = `<circle cx="55" cy="62" r="4.4" fill="${EYE}"/><circle cx="56.6" cy="60.4" r="1.4" fill="#fff"/>
+            <circle cx="85" cy="62" r="4.4" fill="${EYE}"/><circle cx="86.6" cy="60.4" r="1.4" fill="#fff"/>`;
+    mouth = `<path d="M62 90 q8 5 16 0" fill="none" stroke="${DARK}" stroke-width="3" stroke-linecap="round"/>`;
+  } else if (mood === 'happy') {
+    eyes = `<circle cx="55" cy="61" r="4.8" fill="${EYE}"/><circle cx="56.7" cy="59.2" r="1.6" fill="#fff"/>
+            <circle cx="85" cy="61" r="4.8" fill="${EYE}"/><circle cx="86.7" cy="59.2" r="1.6" fill="#fff"/>`;
+    mouth = `<path d="M60 89 q10 8 20 0" fill="none" stroke="${DARK}" stroke-width="3" stroke-linecap="round"/>`;
+    extra = `<ellipse cx="40" cy="74" rx="6" ry="3.6" fill="${BLUSH}" opacity="0.75"/>
+             <ellipse cx="100" cy="74" rx="6" ry="3.6" fill="${BLUSH}" opacity="0.75"/>`;
+  } else if (mood === 'party') {
+    eyes = `<path d="M49 62 q6 -8 12 0" fill="none" stroke="${EYE}" stroke-width="3.2" stroke-linecap="round"/>
+            <path d="M79 62 q6 -8 12 0" fill="none" stroke="${EYE}" stroke-width="3.2" stroke-linecap="round"/>`;
+    mouth = `<path d="M59 88 q11 12 22 0 z" fill="#8A5E3F"/>`;
+    extra = `<ellipse cx="40" cy="74" rx="6" ry="3.6" fill="${BLUSH}" opacity="0.8"/>
+             <ellipse cx="100" cy="74" rx="6" ry="3.6" fill="${BLUSH}" opacity="0.8"/>
+             <path d="M16 20 l2.2 5 5 2.2 -5 2.2 -2.2 5 -2.2 -5 -5 -2.2 5 -2.2 z" fill="#F0C24B"/>
+             <path d="M120 38 l1.7 3.8 3.8 1.7 -3.8 1.7 -1.7 3.8 -1.7 -3.8 -3.8 -1.7 3.8 -1.7 z" fill="#F5B8C9"/>`;
+  } else if (mood === 'heart') { // Easter Egg: Doppel-Tap auf den Otter
+    const heart = (cx, cy, s) => `<path transform="translate(${cx} ${cy}) scale(${s})"
+      d="M0 3.4 C-4 -1.6 -11 -1 -11 4.4 C-11 9 -5.4 12.6 0 17 C5.4 12.6 11 9 11 4.4 C11 -1 4 -1.6 0 3.4 Z" fill="#E8536F"/>`;
+    eyes = heart(55, 60, 0.62) + heart(85, 60, 0.62);
+    mouth = `<path d="M60 89 q10 8 20 0" fill="none" stroke="${DARK}" stroke-width="3" stroke-linecap="round"/>`;
+    extra = `<ellipse cx="40" cy="74" rx="6" ry="3.6" fill="${BLUSH}" opacity="0.85"/>
+             <ellipse cx="100" cy="74" rx="6" ry="3.6" fill="${BLUSH}" opacity="0.85"/>`;
+  } else if (mood === 'midnight') { // Easter Egg: App zwischen 0–4 Uhr geöffnet
+    eyes = `<path d="M49 63 q6 4 12 0" fill="none" stroke="${EYE}" stroke-width="3" stroke-linecap="round"/>
+            <path d="M79 63 q6 4 12 0" fill="none" stroke="${EYE}" stroke-width="3" stroke-linecap="round"/>`;
+    mouth = `<ellipse cx="70" cy="91" rx="4.5" ry="5.5" fill="${DARK}"/>`;
+    extra = `<g fill="#F0C24B">
+        <circle cx="20" cy="16" r="1.6"/><circle cx="112" cy="10" r="1.3"/>
+        <circle cx="128" cy="32" r="1.6"/><circle cx="14" cy="40" r="1.3"/>
+        <path d="M100 8 l1.6 3.6 3.6 1.6 -3.6 1.6 -1.6 3.6 -1.6 -3.6 -3.6 -1.6 3.6 -1.6 Z"/>
+      </g>`;
+  }
+
+  // Accessoires: dieselbe Priorität/Logik wie beim Esel, andere Sitzposition
+  let gear = '';
+  if (acc) {
+    const HEADWEAR = {
+      nightcap: `<g data-acc="nightcap">
+        <path d="M50 30 Q62 4 90 8 L100 22 Q88 16 82 26 Q70 12 56 34 Z" fill="#A99BD6"/>
+        <rect x="46" y="27" width="42" height="9" rx="4.5" fill="#fff"/>
+        <circle cx="102" cy="24" r="5.5" fill="#fff"/></g>`,
+      santa: `<g data-acc="santa">
+        <path d="M50 28 Q58 2 84 4 Q98 6 97 16 Q86 10 82 22 Q70 8 56 30 Z" fill="#D03B3B"/>
+        <rect x="46" y="25" width="42" height="9" rx="4.5" fill="#fff"/>
+        <circle cx="98" cy="15" r="5.5" fill="#fff"/></g>`,
+      wreath: `<g data-acc="wreath">
+        <path d="M47 40 Q70 26 93 40" stroke="#7FA65A" stroke-width="5" fill="none" stroke-linecap="round"/>
+        ${[[49, 39, '#F2A7BF'], [60, 33, '#F0C24B'], [70, 31, '#fff'], [80, 33, '#F2A7BF'], [91, 39, '#F0C24B']].map(([x, y, c]) =>
+          `<circle cx="${x}" cy="${y}" r="4.4" fill="${c}"/><circle cx="${x}" cy="${y}" r="1.7" fill="#E8862E"/>`).join('')}</g>`,
+      crown: `<g data-acc="crown"><path d="M55 16 L59 31 L83 31 L87 16 L79 23 L71 12 L63 23 Z" fill="#F0C24B"/>
+        <circle cx="55" cy="15" r="2.6" fill="#F0C24B"/><circle cx="71" cy="11" r="2.6" fill="#F0C24B"/><circle cx="87" cy="15" r="2.6" fill="#F0C24B"/></g>`,
+      hat: `<g data-acc="hat"><polygon points="69,0 58,32 80,32" fill="#7A63C9"/>
+        <path d="M61.5 22 L76.5 22" stroke="#E5DEF8" stroke-width="4"/>
+        <circle cx="69" cy="0" r="4.2" fill="#F2A7BF"/></g>`,
+    };
+    const worn = ['nightcap', 'crown', 'santa', 'wreath', 'hat'].find((k) => acc[k]);
+    if (worn) gear += HEADWEAR[worn];
+
+    if (acc.flower) {
+      const px = 40, py = 42;
+      gear += `<g data-acc="flower">
+        ${[[0, -4.6], [4.4, -1.4], [2.7, 3.7], [-2.7, 3.7], [-4.4, -1.4]].map(([dx, dy]) =>
+          `<circle cx="${px + dx}" cy="${py + dy}" r="3.4" fill="#F2A7BF"/>`).join('')}
+        <circle cx="${px}" cy="${py}" r="2.6" fill="#F0C24B"/></g>`;
+    }
+    if (acc.pumpkin) {
+      gear += `<g data-acc="pumpkin">
+        <path d="M20 92 Q19 85 25 84" stroke="#4C8A4C" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+        <ellipse cx="20" cy="103" rx="14" ry="11" fill="#E8862E"/>
+        <ellipse cx="20" cy="103" rx="6" ry="11" fill="none" stroke="#C96A2E" stroke-width="1.5"/>
+        <path d="M13 100 l4.5 3.5 -4.5 2 z M27 100 l-4.5 3.5 4.5 2 z" fill="#5C3A10"/>
+        <path d="M14.5 109 q5.5 4.5 11 0" stroke="#5C3A10" stroke-width="2" fill="none" stroke-linecap="round"/></g>`;
+    }
+  }
+
+  return `<svg class="donkey otter" width="${size}" height="${size}" viewBox="0 0 140 120" aria-hidden="true">
+    <!-- Kleine runde Ohren -->
+    <circle cx="42" cy="38" r="9" fill="${BODY}"/>
+    <circle cx="98" cy="38" r="9" fill="${BODY}"/>
+    <circle cx="42" cy="38" r="4.5" fill="${MUZZLE}"/>
+    <circle cx="98" cy="38" r="4.5" fill="${MUZZLE}"/>
+    <!-- Rundlicher Kopf -->
+    <ellipse cx="70" cy="66" rx="40" ry="35" fill="${BODY}"/>
+    <!-- Heller Bauch-/Wangen-Fleck -->
+    <ellipse cx="70" cy="80" rx="26" ry="20" fill="${BELLY}"/>
+    <!-- Schnauze -->
+    <ellipse cx="70" cy="82" rx="19" ry="13" fill="${MUZZLE}"/>
+    ${whiskers}
+    <path d="M63 74 Q70 80 77 74 L74 79 Q70 82 66 79 Z" fill="${NOSE}"/>
+    ${eyes}${mouth}${extra}${gear}
+  </svg>`;
+}
+
+// Fassade: dispatcht auf das aktuell gewählte Maskottchen
+function mascotSvg(mood, size, acc) {
+  return state.ui.mascot === 'otter' ? otterSvg(mood, size, acc) : donkeySvg(mood, size, acc);
+}
+
 // ---------- Belohnungen (Streak schaltet Accessoires frei) ----------
 
 const REWARDS = [
@@ -759,15 +960,18 @@ function pickQuote(mood) {
   let s = 0;
   for (const ch of iso(today())) s += ch.charCodeAt(0);
   if (today().getDay() === 5 && s % 3 === 0) {
-    return 'Iiiaah, endlich Freitag! Zeit fürs Wochenende — aber die Habits erst noch abhaken. 🎉🥕';
+    return state.ui.mascot === 'otter'
+      ? 'Endlich Freitag! Zeit zum Planschen — aber die Habits erst noch abhaken. 🎉🐚'
+      : 'Iiiaah, endlich Freitag! Zeit fürs Wochenende — aber die Habits erst noch abhaken. 🎉🥕';
   }
-  const pool = QUOTES[mood];
+  const pool = mascotQuotes(mood);
   return pool[s % pool.length];
 }
 
 // Zufälliger Streichel-Spruch (nicht tagesstabil — jeder Tap darf anders klingen)
 function pickPet() {
-  return PETS[Math.floor(Math.random() * PETS.length)];
+  const pool = mascotPets();
+  return pool[Math.floor(Math.random() * pool.length)];
 }
 
 // ---------- Rendering: Grundgerüst ----------
@@ -875,8 +1079,8 @@ function renderToday() {
 
   if (state.habits.length === 0) {
     main.innerHTML = `<div class="empty-state">
-      ${donkeySvg('hopeful', 120)}
-      <p style="margin-top:12px">Hallo, ich bin dein Habit-Esel! 🌸<br>
+      ${mascotSvg('hopeful', 120)}
+      <p style="margin-top:12px">Hallo, ich bin dein Habit-${mascotName()}! 🌸<br>
       Tippe unten auf <b>+</b> und leg deinen ersten Habit an — ich feuer dich an!</p>
     </div>`;
     return;
@@ -940,7 +1144,7 @@ function renderToday() {
   hero.className = 'hero';
   // Drittel-Layout: Esel links, Ringe in der Mitte, Zähler-Legende rechts
   hero.innerHTML = `
-    <div class="donkey-tap" role="button" aria-label="Esel streicheln">${donkeySvg(mood, 104, acc)}</div>
+    <div class="donkey-tap" role="button" aria-label="${mascotName()} streicheln">${mascotSvg(mood, 104, acc)}</div>
     <div class="bubble-toast" aria-live="polite"></div>
     ${rings.length ? `${multiRingSvg(rings, 84, 8.5)}
     <div class="rings-legend">${rings.map((r) =>
@@ -964,12 +1168,12 @@ function renderToday() {
   // Easter Egg: Esel antippen zum Streicheln — kurz Herzaugen + Toast-Spruch
   const tapZone = hero.querySelector('.donkey-tap');
   tapZone.addEventListener('click', () => {
-    tapZone.innerHTML = donkeySvg('heart', 104, acc);
+    tapZone.innerHTML = mascotSvg('heart', 104, acc);
     tapZone.classList.add('petted');
     showToast(pickPet());
     clearTimeout(tapZone._resetTimer);
     tapZone._resetTimer = setTimeout(() => {
-      tapZone.innerHTML = donkeySvg(mood, 104, acc);
+      tapZone.innerHTML = mascotSvg(mood, 104, acc);
       tapZone.classList.remove('petted');
     }, 1800);
   });
@@ -998,7 +1202,7 @@ function renderToday() {
       </div>
       <div class="mood-row">${MOODS.map((m) =>
         `<button data-mood="${m.v}" class="${savedMood === m.v ? 'active' : ''}">${m.e}</button>`).join('')}</div>
-      ${savedMood ? `<div class="mood-reaction">${MOODS[savedMood - 1].reaction}</div>` : ''}`;
+      ${savedMood ? `<div class="mood-reaction">${mascotMoodReaction(savedMood)}</div>` : ''}`;
     moodCard.querySelectorAll('.mood-row button').forEach((b) =>
       b.addEventListener('click', () => {
         const v = Number(b.dataset.mood);
@@ -1026,7 +1230,7 @@ function renderToday() {
     const nc = document.createElement('div');
     nc.className = 'name-card';
     nc.innerHTML = `
-      <div class="mood-q">👋 Wie darf dich der Esel nennen?</div>
+      <div class="mood-q">👋 Wie darf dich ${state.ui.mascot === 'otter' ? 'der Otter' : 'der Esel'} nennen?</div>
       <div class="name-row">
         <input id="inp-username" type="text" placeholder="Dein Name" maxlength="20" autocomplete="given-name">
         <button id="btn-username-save" class="btn primary">Los!</button>
@@ -1186,8 +1390,8 @@ function buildUpdateCard() {
   card.className = 'update-card';
   card.innerHTML = `
     <div class="update-head">
-      <span class="update-donkey">${donkeySvg('party', 52)}</span>
-      <div class="update-title">Iiiaah — es gibt Neuigkeiten!</div>
+      <span class="update-donkey">${mascotSvg('party', 52)}</span>
+      <div class="update-title">${state.ui.mascot === 'otter' ? 'Wiiii — es gibt Neuigkeiten!' : 'Iiiaah — es gibt Neuigkeiten!'}</div>
     </div>
     <ul class="update-list">
       ${news.flatMap((e) => e.items).map((i) => `<li>${i}</li>`).join('')}
@@ -1283,6 +1487,33 @@ const LETTER_PS = [
   'P.S. Falls es mal schwer wird: Ein Pause-Tag ist keine Schwäche, sondern Eselsweisheit. ⏸',
 ];
 
+// Otter-Pendants zum Wochenbrief
+const LETTER_MOTIVATION_OTTER = {
+  great: [
+    'Ich bin so stolz auf dich, dass ich vor Freude Wasser-Purzelbäume schlage! Du hast diese Woche richtig was gerissen. Lass uns nächste Woche genau so weiterschwimmen — oder mit einem Extra-Sprung! 🎉',
+    'WIIII! Was für eine Woche! Wenn ich Pfoten zum Klatschen hätte, würdest du jetzt Standing Ovations bekommen. Nächste Woche zeigen wir allen, dass das kein Zufall war! ✨',
+    'Du warst diese Woche mein absoluter Lieblingsmensch (gut, das bist du immer). Diese Energie nehmen wir mit — die nächste Woche kann kommen! 💛',
+  ],
+  good: [
+    'Das war eine ordentliche Woche! Nicht jeder Tag war perfekt — muss er auch nicht. Die Strömung stimmt, und ich schwimm an deiner Seite. Nächste Woche holen wir uns noch ein Häkchen mehr! 🦦',
+    'Solide Woche, wirklich! Und weißt du was? Die perfekte Woche ist gar nicht das Ziel — dranbleiben ist es. Genau das machst du. Weiter so! 🌊',
+    'Gute Arbeit diese Woche! Ein paar Muscheln haben wir liegen lassen, aber die holen wir uns nächste Woche einfach dazu. Ich glaub an dich! 🐚',
+  ],
+  rough: [
+    'Diese Woche war schwer, hm? Komm her, Bauchkuscheln. 🫂 Weißt du, was ich an dir mag? Du bist noch da. Das zählt mehr als jedes Häkchen. Nächste Woche fangen wir klein an — ein Habit, ein Tag, ein Schritt. Ich bin bei dir.',
+    'Hey. Manche Wochen sind einfach zum Vergessen — und genau dafür gibt es neue Wochen. Kein Vorwurf, kein Drama, nur ein Otter, der dich anstupst: Morgen ist Montag, und Montage sind für Neuanfänge gemacht. 🌱',
+    'Die Häkchen waren diese Woche schüchtern — macht nichts. Auch ich verstecke mich manchmal im Schilf. Wichtig ist: Wir kommen beide wieder raus. Nächste Woche, du und ich, ein neuer Anlauf. Versprochen? 💛',
+  ],
+};
+
+const LETTER_PS_OTTER = [
+  'P.S. Ich habe für dich eine extra Muschel am Ufer versteckt. 🐚',
+  'P.S. Streichel mich mal wieder — die Herzaugen vermisse ich schon!',
+  'P.S. Wusstest du, dass Otter sich beim Schlafen an den Pfoten halten, damit sie nicht wegtreiben? So halten wir auch zusammen.',
+  'P.S. Vergiss dein Backup nicht — Einstellungen → Exportieren. Auch Briefe brauchen ein Zuhause. 📦',
+  'P.S. Falls es mal schwer wird: Ein Pause-Tag ist keine Schwäche, sondern Otter-Weisheit. ⏸',
+];
+
 // Stabiler Mini-Hash, damit derselbe Brief beim erneuten Öffnen gleich bleibt
 function weekHash(key) {
   let s = 0;
@@ -1324,13 +1555,18 @@ function composeLetter(wk) {
   const fmt = (d) => d.toLocaleDateString('de-DE', { day: 'numeric', month: 'short' });
   const pct = cur.pct ?? 0;
   const tier = pct >= 80 ? 'great' : pct >= 40 ? 'good' : 'rough';
-  const motivation = LETTER_MOTIVATION[tier][hash % LETTER_MOTIVATION[tier].length];
-  const ps = LETTER_PS[hash % LETTER_PS.length];
+  const isOtter = state.ui.mascot === 'otter';
+  const motivationPool = isOtter ? LETTER_MOTIVATION_OTTER : LETTER_MOTIVATION;
+  const psPool = isOtter ? LETTER_PS_OTTER : LETTER_PS;
+  const motivation = motivationPool[tier][hash % motivationPool[tier].length];
+  const ps = psPool[hash % psPool.length];
 
   let trend = '';
   if (prev.pct !== null && cur.pct !== null) {
     const d = cur.pct - prev.pct;
-    if (d > 0) trend = `Das sind <b class="up">${d} Punkte mehr</b> als in der Woche davor — Trab aufgenommen!`;
+    if (d > 0) trend = isOtter
+      ? `Das sind <b class="up">${d} Punkte mehr</b> als in der Woche davor — Strömung aufgenommen!`
+      : `Das sind <b class="up">${d} Punkte mehr</b> als in der Woche davor — Trab aufgenommen!`;
     else if (d < 0) trend = `Das sind ${-d} Punkte weniger als in der Woche davor — aber Briefe wie dieser sind zum Neustarten da.`;
     else trend = 'Genau wie in der Woche davor — Beständigkeit ist auch eine Kunst.';
   }
@@ -1346,8 +1582,8 @@ function composeLetter(wk) {
     : '';
 
   return `
-    <div class="letter-head">${donkeySvg('happy', 56)}<div>
-      <div class="letter-title">Post vom Esel</div>
+    <div class="letter-head">${mascotSvg('happy', 56)}<div>
+      <div class="letter-title">Post vom ${mascotName()}</div>
       <div class="letter-date">Woche vom ${fmt(wk)} – ${fmt(wkEnd)}</div>
     </div></div>
     <p class="letter-greet">Hallo ${state.ui.userName ? esc(state.ui.userName) : 'du'},</p>
@@ -1359,7 +1595,7 @@ function composeLetter(wk) {
     ${moodLine}
     ${goldenWeek(wk) ? '<p class="letter-gold-note">✨ <b>Goldene Woche!</b> Du hast restlos alles geschafft. Zur Feier trage ich nächste Woche mein Krönchen — nur für dich. 👑</p>' : ''}
     <p class="letter-motivation" data-tier="${tier}">${motivation}</p>
-    <p class="letter-sign">Dein Esel 🐴💛</p>
+    <p class="letter-sign">Dein ${mascotName()} ${isOtter ? '🦦' : '🐴'}💛</p>
     <p class="letter-ps">${ps}</p>`;
 }
 
@@ -1367,7 +1603,7 @@ function openLetter(wk, fromEnvelope) {
   letterCtx = { key: iso(wk), fromEnvelope: !!fromEnvelope };
   $('#letter-content').classList.toggle('letter-golden', goldenWeek(wk));
   $('#letter-content').innerHTML = composeLetter(wk);
-  $('#btn-close-letter').textContent = fromEnvelope ? 'Danke, Esel! 💛' : 'Schließen';
+  $('#btn-close-letter').textContent = fromEnvelope ? `Danke, ${mascotName()}! 💛` : 'Schließen';
   openSheet($('#sheet-letter'));
 }
 
@@ -1444,7 +1680,7 @@ function buildEnvelope() {
   card.innerHTML = `
     <span class="envelope-icon">${golden ? '💌' : '📬'}</span>
     <span class="envelope-text">
-      <span class="envelope-title">${golden ? '✨ Goldene Post!' : 'Post vom Esel!'}</span>
+      <span class="envelope-title">${golden ? '✨ Goldene Post!' : `Post vom ${mascotName()}!`}</span>
       <span class="envelope-sub">${golden ? 'Eine perfekte Woche — dieser Brief glänzt' : 'Dein Wochenbrief ist da — antippen zum Öffnen'}</span>
     </span>`;
   card.addEventListener('click', () => openLetter(wk, true));
@@ -1456,7 +1692,7 @@ function buildEnvelope() {
 function renderStats() {
   if (state.habits.length === 0) {
     main.innerHTML = `<div class="empty-state">
-      ${donkeySvg('hopeful', 120)}
+      ${mascotSvg('hopeful', 120)}
       <p style="margin-top:12px">Sobald du Habits trackst, zeige ich dir hier deine Wochen- und Monats-Auswertung. 📊</p>
     </div>`;
     return;
@@ -2434,6 +2670,13 @@ function deleteHabit() {
 
 function renderSettings() {
   $('#inp-settings-name').value = state.ui.userName || '';
+  const current = state.ui.mascot === 'otter' ? 'otter' : 'donkey';
+  document.querySelectorAll('.mascot-choice').forEach((b) =>
+    b.classList.toggle('active', b.dataset.mascot === current));
+  $('#mascot-preview-donkey').innerHTML = donkeySvg('happy', 48, accessoriesFor(0));
+  $('#mascot-preview-otter').innerHTML = otterSvg('happy', 48, accessoriesFor(0));
+  $('#settings-name-hint').textContent =
+    `Damit der ${current === 'otter' ? 'Otter' : 'Esel'} dich in seinen Briefen persönlich ansprechen kann.`;
   const t = iso(today());
   $('#btn-pause-today').textContent = isPause(t)
     ? 'Pause für heute aufheben'
@@ -2519,6 +2762,14 @@ $('#inp-settings-name').addEventListener('change', () => {
   state.ui.nameAsked = true;
   save();
 });
+
+document.querySelectorAll('.mascot-choice').forEach((b) =>
+  b.addEventListener('click', () => {
+    state.ui.mascot = b.dataset.mascot === 'otter' ? 'otter' : 'donkey';
+    save();
+    renderSettings();
+    render();
+  }));
 
 $('#btn-album').addEventListener('click', openAlbum);
 $('#btn-close-album').addEventListener('click', () => closeSheet($('#sheet-album')));

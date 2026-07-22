@@ -15,7 +15,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Habits">
 
-  <link rel="stylesheet" href="style.css?v=22">
+  <link rel="stylesheet" href="style.css?v=24">
 </head>
 <body>
   <div class="app">
@@ -206,7 +206,7 @@
       <div class="sheet-handle"></div>
       <div id="letter-content" class="letter"></div>
       <div class="sheet-actions">
-        <button id="btn-close-letter" class="btn primary">Danke, Esel! 💛</button>
+        <button id="btn-close-letter" class="btn primary">Danke! 💛</button>
       </div>
     </div>
   </div>
@@ -242,14 +242,29 @@
       <h2>Einstellungen</h2>
 
       <div class="settings-group">
+        <h3>Dein Maskottchen</h3>
+        <p class="hint">Wer soll dich begleiten?</p>
+        <div class="mascot-row" id="mascot-row">
+          <button data-mascot="donkey" class="mascot-choice">
+            <span class="mascot-preview" id="mascot-preview-donkey"></span>
+            <b>Esel</b>
+          </button>
+          <button data-mascot="otter" class="mascot-choice">
+            <span class="mascot-preview" id="mascot-preview-otter"></span>
+            <b>Otter</b>
+          </button>
+        </div>
+      </div>
+
+      <div class="settings-group">
         <h3>Dein Name</h3>
-        <p class="hint">Damit der Esel dich in seinen Briefen persönlich ansprechen kann.</p>
+        <p class="hint" id="settings-name-hint">Damit dein Maskottchen dich in Briefen persönlich ansprechen kann.</p>
         <input id="inp-settings-name" type="text" class="settings-input" placeholder="z. B. Emse" maxlength="20" autocomplete="given-name">
       </div>
 
       <div class="settings-group">
         <h3>Erinnerungen</h3>
-        <p class="hint">Deine Rekorde, Belohnungen und alle Wochenbriefe vom Esel.</p>
+        <p class="hint">Deine Rekorde, Belohnungen und alle Wochenbriefe.</p>
         <div class="settings-actions">
           <button id="btn-album" class="btn ghost">🏆 Album öffnen</button>
         </div>
@@ -289,6 +304,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=22"></script>
+  <script src="app.js?v=24"></script>
 </body>
 </html>
