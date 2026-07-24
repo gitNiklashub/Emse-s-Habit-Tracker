@@ -111,7 +111,10 @@ check('ziellinie mit headroom', parseFloat(gl.style.bottom) > 70 && parseFloat(g
 doc.querySelector('.seg button[data-mode="month"]').click();
 check('monatsgrid da', statOf('Lesen').querySelector('.month-grid') !== null);
 doc.querySelector('.seg button[data-mode="year"]').click();
-check('jahres-heatmap (>=365 zellen)', statOf('Lesen').querySelectorAll('.yh-cell').length >= 365);
+// Heatmap startet bei der ersten Aktivität (hier: heutiges Anlegedatum), nicht
+// stur am 1. Januar — daher deutlich weniger als ein volles Kalenderjahr an Zellen.
+const yhCells = statOf('Lesen').querySelectorAll('.yh-cell');
+check('jahres-heatmap vorhanden', yhCells.length > 0 && yhCells.length < 200);
 check('rekord im jahres-header', statOf('Lesen').querySelector('.val').textContent.includes('Rekord'));
 
 // --- Verzicht rückwirkend (Vorwoche, vor Anlegedatum) ---

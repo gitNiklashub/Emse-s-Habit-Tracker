@@ -15,7 +15,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Habits">
 
-  <link rel="stylesheet" href="style.css?v=24">
+  <link rel="stylesheet" href="style.css?v=26">
 </head>
 <body>
   <div class="app">
@@ -157,13 +157,17 @@
         <span id="log-unit" class="log-unit"></span>
       </div>
 
-      <label class="field-label" for="inp-log">Wert</label>
+      <div id="log-entries" class="entries-list"></div>
+
+      <label class="field-label" for="inp-log">Neuer Eintrag</label>
       <input id="inp-log" type="text" inputmode="decimal" placeholder="z. B. 25">
 
       <div class="sheet-actions">
-        <button id="btn-log-clear" class="btn danger" title="Eintrag für diesen Tag löschen">Leeren</button>
-        <button id="btn-log-set" class="btn ghost">Setzen</button>
+        <button id="btn-log-clear" class="btn danger" title="Alle Einträge dieses Tages löschen">Leeren</button>
         <button id="btn-log-add" class="btn primary">+ Dazu</button>
+      </div>
+      <div class="sheet-actions">
+        <button id="btn-log-done" class="btn ghost">Fertig</button>
       </div>
     </div>
   </div>
@@ -304,6 +308,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=24"></script>
+  <script src="app.js?v=26"></script>
 </body>
 </html>

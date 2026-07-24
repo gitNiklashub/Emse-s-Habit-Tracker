@@ -10,8 +10,20 @@ const STORAGE_KEY = 'emse-habits-v1';
 
 // App-Version für die einmalige „Was ist neu"-Karte.
 // Bei jedem Update: Version hochzählen + CHANGELOG-Eintrag ergänzen.
-const APP_VERSION = 24;
+const APP_VERSION = 26;
 const CHANGELOG = [
+  {
+    v: 26,
+    items: [
+      '📅 Jahres-Heatmap startet jetzt bei deinem ersten Eintrag statt immer am 1. Januar — kein Leerraum mehr vor den eigentlichen Daten.',
+    ],
+  },
+  {
+    v: 25,
+    items: [
+      '✎ Zahlen-Habits (z. B. Eiweiß): jeder Eintrag eines Tages ist jetzt einzeln sichtbar — bearbeite oder lösche einzelne Werte, statt nur die Tagessumme zu überschreiben.',
+    ],
+  },
   {
     v: 24,
     items: [
@@ -264,7 +276,7 @@ function load() {
     }
   } catch (e) { /* korrupte Daten → frisch starten */ }
   // Frische Installation: nichts ist „neu" → aktuelle Version gilt als gesehen
-  return { version: 1, habits: [], logs: {}, pauses: {}, ui: { seenVersion: APP_VERSION }, moods: {} };
+  return { version: 1, habits: [], logs: {}, entries: {}, pauses: {}, ui: { seenVersion: APP_VERSION }, moods: {} };
 }
 
 // Ältere Datenstände auf den aktuellen Stand heben
@@ -288,6 +300,10 @@ function migrate(data) {
   if (!data.pauses) data.pauses = {};
   if (!data.ui) data.ui = {};
   if (!data.moods) data.moods = {};
+  // Einzeleinträge für Zahlen-Habits: neue, parallele Struktur zur Tagessumme
+  // in state.logs. Alte Tagessummen bleiben als Summe erhalten, nur die
+  // Aufschlüsselung in Einzelposten fehlt für Alt-Daten (kein erfundener Eintrag).
+  if (!data.entries) data.entries = {};
 }
 
 function save() {
@@ -334,13 +350,21 @@ function goalReached(h, val) {
   return h.direction === 'max' ? val <= h.goal : val >= h.goal;
 }
 
-// Startpunkt eines Verzicht-Habits: das Anlegedatum — oder ein früher
-// nachgetragener Rückfall (dann zählt die Zeit rückwirkend ab dort)
-function quitStart(h) {
-  const created = fromIso(h.createdAt);
+// Frühester Tag mit tatsächlicher Aktivität für einen Habit — das Anlegedatum,
+// oder ein früher liegender Log-Eintrag, falls rückwirkend nachgetragen wurde
+// (z. B. Verzicht-Rückfälle oder Zahlen-/Ereignis-Werte für ältere Tage).
+// Dient der Jahres-Heatmap, damit sie nicht mit Leerspalten vor den ersten
+// Daten beginnt, sondern direkt bei der Woche des ersten Eintrags startet.
+function earliestActivity(h, created) {
   const dates = Object.keys(state.logs[h.id] || {}).sort();
   if (dates.length > 0 && fromIso(dates[0]) < created) return fromIso(dates[0]);
   return created;
+}
+
+// Startpunkt eines Verzicht-Habits: das Anlegedatum — oder ein früher
+// nachgetragener Rückfall (dann zählt die Zeit rückwirkend ab dort)
+function quitStart(h) {
+  return earliestActivity(h, fromIso(h.createdAt));
 }
 
 // „Zählt der Tag als geschafft?" — Zahlen-Habits: Tagesziel erreicht;
@@ -372,6 +396,71 @@ function setVal(habitId, isoDate, value) {
   if (value > 0) state.logs[habitId][isoDate] = value;
   else delete state.logs[habitId][isoDate];
   save();
+}
+
+// ---------- Einzeleinträge (Zahlen-Habits) ----------
+// state.entries[habitId][isoDate] = [{ id, val, at }, ...]. state.logs bleibt
+// die aus diesen Einträgen abgeleitete Tagessumme — dadurch lesen alle
+// bestehenden rawVal()/sumInRange()-Aufrufer weiterhin einen einfachen Skalar.
+
+function entriesOn(habitId, isoDate) {
+  return (state.entries[habitId] && state.entries[habitId][isoDate]) || [];
+}
+
+function recalcLogFromEntries(habitId, isoDate) {
+  const sum = entriesOn(habitId, isoDate).reduce((s, e) => s + e.val, 0);
+  setVal(habitId, isoDate, sum); // pflegt state.logs + save() in einem Aufwasch
+}
+
+function addEntry(habitId, isoDate, val) {
+  if (!state.entries[habitId]) state.entries[habitId] = {};
+  if (!state.entries[habitId][isoDate]) state.entries[habitId][isoDate] = [];
+  const list = state.entries[habitId][isoDate];
+
+  // Alt-Daten (vor diesem Feature): state.logs trägt für den Tag schon eine
+  // Summe, aber es gibt noch keine Einzeleinträge dazu. Beim allerersten neuen
+  // Eintrag auf so einem Tag die geerbte Summe als "Bisheriger Wert"-Posten
+  // übernehmen, statt sie beim Neuberechnen stillschweigend zu verwerfen.
+  if (list.length === 0) {
+    const inherited = rawVal(habitId, isoDate);
+    if (inherited > 0) {
+      list.push({
+        id: 'e' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5) + 'i',
+        val: inherited,
+        at: Date.now(),
+        legacy: true, // markiert den migrierten Alt-Posten (informativ, keine Logik hängt daran)
+      });
+    }
+  }
+
+  list.push({
+    id: 'e' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    val,
+    at: Date.now(),
+  });
+  recalcLogFromEntries(habitId, isoDate);
+}
+
+function updateEntry(habitId, isoDate, entryId, val) {
+  const list = entriesOn(habitId, isoDate);
+  const e = list.find((x) => x.id === entryId);
+  if (!e) return;
+  e.val = val;
+  recalcLogFromEntries(habitId, isoDate);
+}
+
+function removeEntry(habitId, isoDate, entryId) {
+  const list = entriesOn(habitId, isoDate);
+  const idx = list.findIndex((x) => x.id === entryId);
+  if (idx === -1) return;
+  list.splice(idx, 1);
+  if (list.length === 0 && state.entries[habitId]) delete state.entries[habitId][isoDate];
+  recalcLogFromEntries(habitId, isoDate);
+}
+
+function clearEntries(habitId, isoDate) {
+  if (state.entries[habitId]) delete state.entries[habitId][isoDate];
+  setVal(habitId, isoDate, 0);
 }
 
 function countInRange(habitId, from, to) { // Tage mit Eintrag, from/to inklusiv
@@ -2187,13 +2276,17 @@ function renderYearStats() {
     card.innerHTML = statHead(h, val, false) + '<div class="year-scroll"><div class="year-grid"></div></div>';
     const grid = card.querySelector('.year-grid');
 
-    // GitHub-Style: Spalten = Wochen, Zeilen = Mo–So
-    const start = monday(from);
-    const weeks = Math.ceil((addDays(to, 1) - start) / 86400000 / 7);
     const evtMax = h.kind === 'event'
       ? Math.max(1, ...Object.values(state.logs[h.id] || {})) : 1;
     // Verzicht: rückwirkend nachgetragene Rückfälle verschieben den Start nach vorn
-    const habitStart = h.kind === 'quit' ? quitStart(h) : created;
+    const habitStart = h.kind === 'quit' ? quitStart(h) : earliestActivity(h, created);
+    // Grid beginnt bei der Woche des tatsächlichen Starts (nicht immer Januar) —
+    // so ist die Heatmap nicht mit Leerspalten vor den ersten Daten überfüllt.
+    // Liegt der Start erst später im Jahr an, aber vor "from" (Vorjahr o.ä.),
+    // bleibt "from" die Untergrenze, damit sich Jahre nicht überlappen.
+    const gridFrom = habitStart > from ? habitStart : from;
+    const start = monday(gridFrom);
+    const weeks = Math.ceil((addDays(to, 1) - start) / 86400000 / 7);
 
     for (let w = 0; w < weeks; w++) {
       for (let r = 0; r < 7; r++) {
@@ -2430,32 +2523,92 @@ function openLog(habitId, isoDate) {
   $('#log-sub').textContent = d.toLocaleDateString('de-DE', {
     weekday: 'long', day: 'numeric', month: 'long',
   });
-  $('#log-current-val').textContent = fmtNum(rawVal(habitId, isoDate));
   $('#log-unit').textContent = ` ${h.unit} · ${h.direction === 'max' ? 'Höchstens' : 'Ziel'} ${fmtNum(h.goal)}`;
   $('#inp-log').value = '';
+  renderLogEntries();
   openSheet($('#sheet-log'));
   setTimeout(() => $('#inp-log').focus(), 250);
 }
 
-function applyLog(mode) { // 'add' | 'set' | 'clear'
+// Rendert die Einzeleinträge-Liste + die Summenanzeige für logCtx neu,
+// ohne das Sheet zu schließen — so lassen sich mehrere Werte am Stück erfassen.
+function renderLogEntries() {
   if (!logCtx) return;
-  const h = state.habits.find((x) => x.id === logCtx.habitId);
-  if (!h) return;
+  const { habitId, date } = logCtx;
+  $('#log-current-val').textContent = fmtNum(rawVal(habitId, date));
+
+  const list = $('#log-entries');
+  const entries = entriesOn(habitId, date);
+  list.innerHTML = '';
+  if (entries.length === 0) {
+    list.innerHTML = '<p class="entries-empty">Noch keine Einträge für diesen Tag.</p>';
+    return;
+  }
+  entries.forEach((e) => {
+    const row = document.createElement('div');
+    row.className = 'entry-row';
+    const time = new Date(e.at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+    row.innerHTML = `
+      <span class="entry-val">${fmtNum(e.val)}</span>
+      <span class="entry-time">${time}</span>
+      <button class="entry-edit" aria-label="Bearbeiten">✎</button>
+      <button class="entry-del" aria-label="Löschen">✕</button>`;
+
+    row.querySelector('.entry-edit').addEventListener('click', () => {
+      const valSpan = row.querySelector('.entry-val');
+      valSpan.innerHTML = `<input type="text" inputmode="decimal" value="${fmtNum(e.val)}">`;
+      const inp = valSpan.querySelector('input');
+      inp.focus();
+      inp.select();
+      const commit = () => {
+        const v = parseFloat(inp.value.trim().replace(',', '.'));
+        if (!isNaN(v) && v >= 0) {
+          const wasAll = allDoneToday();
+          updateEntry(habitId, date, e.id, v);
+          renderLogEntries();
+          render();
+          if (!wasAll && allDoneToday()) confetti();
+          if (detail && !$('#sheet-detail').classList.contains('hidden')) renderDetail();
+        } else {
+          renderLogEntries(); // ungültig → Zeile unverändert wiederherstellen
+        }
+      };
+      inp.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') inp.blur(); });
+      inp.addEventListener('blur', commit, { once: true });
+    });
+
+    row.querySelector('.entry-del').addEventListener('click', () => {
+      removeEntry(habitId, date, e.id);
+      renderLogEntries();
+      render();
+      if (detail && !$('#sheet-detail').classList.contains('hidden')) renderDetail();
+    });
+
+    list.appendChild(row);
+  });
+}
+
+function addLogEntry() {
+  if (!logCtx) return;
+  const raw = $('#inp-log').value.trim().replace(',', '.');
+  const v = parseFloat(raw);
+  if (isNaN(v) || v <= 0) { $('#inp-log').focus(); return; }
 
   const wasAll = allDoneToday();
-  if (mode === 'clear') {
-    setVal(h.id, logCtx.date, 0);
-  } else {
-    const raw = $('#inp-log').value.trim().replace(',', '.');
-    const v = parseFloat(raw);
-    if (isNaN(v) || v < 0) { $('#inp-log').focus(); return; }
-    const cur = rawVal(h.id, logCtx.date);
-    setVal(h.id, logCtx.date, mode === 'add' ? cur + v : v);
-  }
+  addEntry(logCtx.habitId, logCtx.date, v);
   if (!wasAll && allDoneToday()) confetti();
 
-  closeSheet($('#sheet-log'));
-  logCtx = null;
+  $('#inp-log').value = '';
+  renderLogEntries();
+  render();
+  if (detail && !$('#sheet-detail').classList.contains('hidden')) renderDetail();
+  $('#inp-log').focus();
+}
+
+function clearLogEntries() {
+  if (!logCtx) return;
+  clearEntries(logCtx.habitId, logCtx.date);
+  renderLogEntries();
   render();
   if (detail && !$('#sheet-detail').classList.contains('hidden')) renderDetail();
 }
@@ -2811,8 +2964,6 @@ $('#inp-emoji').addEventListener('input', () => {
   document.querySelectorAll('#emoji-row button').forEach((b) =>
     b.classList.toggle('active', b.textContent === sheetSel.emoji));
 });
-$('#inp-log').addEventListener('keydown', (e) => { if (e.key === 'Enter') applyLog('add'); });
-
 document.querySelectorAll('#kind-seg button').forEach((b) =>
   b.addEventListener('click', () => { sheetSel.kind = b.dataset.kind; renderSheetControls(); }));
 
@@ -2832,9 +2983,10 @@ $('#target-plus').addEventListener('click', () => {
   renderSheetControls();
 });
 
-$('#btn-log-add').addEventListener('click', () => applyLog('add'));
-$('#btn-log-set').addEventListener('click', () => applyLog('set'));
-$('#btn-log-clear').addEventListener('click', () => applyLog('clear'));
+$('#btn-log-add').addEventListener('click', addLogEntry);
+$('#btn-log-clear').addEventListener('click', clearLogEntries);
+$('#btn-log-done').addEventListener('click', () => closeSheet($('#sheet-log')));
+$('#inp-log').addEventListener('keydown', (e) => { if (e.key === 'Enter') addLogEntry(); });
 
 $('#event-plus').addEventListener('click', () => adjustEvent(1));
 $('#event-minus').addEventListener('click', () => adjustEvent(-1));
